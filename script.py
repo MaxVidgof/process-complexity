@@ -1,7 +1,10 @@
+#!/usr/bin/env python3.7
 import subprocess
 import math
 import pm4py
 from argparse import ArgumentParser
+import statistics
+import datetime
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -10,6 +13,7 @@ parser.add_argument("-d", "--dot", dest="dot", help="create dot specs", default=
 parser.add_argument("-g", "--graph", dest="graph", help="draw a graph", default=False, action="store_true")
 parser.add_argument("-p", "--prefix", dest="prefix", help="output prefix for each state", default=False, action="store_true")
 parser.add_argument("-v", "--verbose", dest="verbose", help="verbose output", default=False, action="store_true")
+parser.add_argument("-m", "--measures", dest="measures", help="calculate other complexity measures", default=False, action="store_true")
 parser.add_argument("--hide-event", dest="subg", help="hide event nodes, keep only activity types", default=True, action="store_false")
 parser.add_argument("--png", dest="png", help="draw the graph in PNG (may fail if the graph is too big", default=False, action="store_true")
 args = parser.parse_args()
@@ -68,7 +72,7 @@ elif (args.file.split(".")[-1]=="csv"):
 		parts = line.split(i_d.strip())
 	#	if parts[0] not in log:
 	#		log[parts[0]] = []
-		log.append(Event(parts[i_c], parts[i_a], parts[i_t]))
+		log.append(Event(parts[i_c], parts[i_a], datetime.datetime.fromisoformat(parts[i_t])))
 else:
 	raise Exception("File type not recognized, should be xes or csv")
 
@@ -82,6 +86,7 @@ for event in log:
 	if event.case_id in last_event:
 		event.predecessor = last_event[event.case_id]
 	last_event[event.case_id] = event
+#at this point last_event.keys will include all case IDs in the log
 
 if(args.verbose):
 	print("Case ID, Activity, Timestamp, Predecessor, Event ID")
@@ -214,7 +219,62 @@ if(args.graph):
 	subprocess.call(["dot", "-Tpng" if args.png else "-Tsvg", "t.gv", "-o", "t."+("png" if args.png else "svg")]) #-Tpng
 	print("Saved graph to t."+("png" if args.png else "svg"))
 
-#6. Calculate the graph complexity measure
+#6. Calculate complexity measures
+#6.1. Log complexity metrics
+if(args.measures):
+	m_magnitude = len(log) # magnitude - number of events in a log
+	print("Magnitude: " + str(m_magnitude))
+	m_support = len(last_event.keys()) # support - number of traces in a log
+	print("Support: " + str(m_support))
+
+	event_classes = {}
+	df_relations = {}
+	trace_lengths = {}
+	for case_id in last_event.keys():
+		event_classes[case_id] = set()
+		df_relations[case_id] = set()
+		trace_lengths[case_id] = 0
+	for event in log:
+		event_classes[event.case_id].add(event.activity)
+		if event.predecessor:
+			df_relations[event.case_id].add((event.predecessor.activity, event.activity))
+		trace_lengths[event.case_id] += 1
+	m_variety = len(set.union(*[event_classes[case_id] for case_id in event_classes]))
+	print("Variety: " + str(m_variety))
+	m_lod = statistics.mean([len(event_classes[case_id]) for case_id in event_classes])
+	print("Level of detail: " + str(m_lod))
+
+	time_granularities = {}
+	for event in log:
+		if event.predecessor:
+			d = (event.timestamp - event.predecessor.timestamp).total_seconds()
+			if event.case_id not in time_granularities or d < time_granularities[event.case_id]:
+				time_granularities[event.case_id] = d
+				if(args.verbose):
+					print("Updating time granularity for trace " + str(event.case_id) + ": " + str(d) + " seconds. Event " + str(event.activity) + " (" + str(event.event_id) + ")")
+	m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
+	print("Time granularity: " + str(m_time_granularity) + " (seconds)")
+	m_structure = 1 - ((len(set.union(*[df_relations[case_id] for case_id in df_relations])))/(m_variety**2))
+	print("Structure: " + str(m_structure))
+	affinities = []
+	for case_id_1 in df_relations:
+		for case_id_2 in df_relations:
+			if case_id_1 != case_id_2:
+				# note that affinities are only calculated for distinct traces
+				# also note that affinity is calculated twice for each pair of traces, e.g. (1,2) and (2,1),
+				# this does not affect the result but does double the calculation time
+				# however, it prevents possible errors when comparing event IDs that are strungs
+				affinity = len(set.intersection(df_relations[case_id_1], df_relations[case_id_2]))/len(set.union(df_relations[case_id_1], df_relations[case_id_2]))
+				affinities.append(affinity)
+	m_affinity = statistics.mean(affinities)
+	print("Affinity: " + str(m_affinity))
+	m_trace_length = {}
+	m_trace_length["min"] = min([trace_lengths[case_id] for case_id in trace_lengths])
+	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
+	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
+	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
+
+#6.2. Calculate the graph complexity measure
 graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
 for i in range(1,pa.c+1):
 	#print(graph_complexity)
