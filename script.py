@@ -77,7 +77,8 @@ else:
 	raise Exception("File type not recognized, should be xes or csv")
 
 log.sort(key = lambda event: event.timestamp)
-
+#2.1 Define the time span
+timespan = (log[-1].timestamp - log[0].timestamp).total_seconds()
 #3. Define the predecessor of each event in a trace
 
 last_event = {}
@@ -273,6 +274,16 @@ if(args.measures):
 	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
 	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
 	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
+	#Pentland's Process Complexity
+	#Calculated as number of variants - variants that include loops
+	m_simple_paths = pa.c #all paths
+	for node in pa.nodes:
+		if len(node.successors) == 0:
+			p = node.getPrefix()
+			if len(p.split(",")) > len(set(p.split(","))):
+				m_simple_paths -= 1
+	print("Number of simple paths: " + str(m_simple_paths)) #remove this method as it refers to process _model_ not _log_
+
 
 #6.2. Calculate the graph complexity measure
 graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
@@ -293,6 +304,41 @@ for i in range(1,pa.c+1):
 	log_complexity -= math.log(e)*e
 
 print("log complexity = "+str(log_complexity))
+
+#log complexity with exponential forgetting
+log_complexity_linear = 0
+for event in log:
+	log_complexity_linear += 1 - (log[-1].timestamp - event.timestamp).total_seconds()/timespan
+
+log_complexity_linear = math.log(log_complexity_linear) * log_complexity_linear
+
+for i in range(1,pa.c+1):
+	e = 0
+	for AT in pa.nodes:
+		if AT.c == i:
+			for event in AT.sequence:
+				e += 1 - (log[-1].timestamp - event.timestamp).total_seconds()/timespan
+	log_complexity_linear -= math.log(e)*e
+
+print("log complexity with linear forgetting: "+str(log_complexity_linear))
+
+#log complexity with exponential forgetting
+log_complexity_exp = 0
+k=1
+for event in log:
+	log_complexity_exp += math.exp((-(log[-1].timestamp - event.timestamp).total_seconds()/timespan)*k)
+
+log_complexity_exp = math.log(log_complexity_exp) * log_complexity_exp
+
+for i in range(1,pa.c+1):
+	e = 0
+	for AT in pa.nodes:
+		if AT.c == i:
+			for event in AT.sequence:
+				e += math.exp((-(log[-1].timestamp - event.timestamp).total_seconds()/timespan)*k)
+	log_complexity_exp -= math.log(e)*e
+
+print("log complexity with exponential forgetting: "+str(log_complexity_exp))
 
 #7. Show prefixes of each state
 if(args.prefix):
