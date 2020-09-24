@@ -5,6 +5,7 @@ import pm4py
 from argparse import ArgumentParser
 import statistics
 import datetime
+from dateutil import rrule
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -56,7 +57,7 @@ elif (args.file.split(".")[-1]=="csv"):
 	i_c = 0 if i_c == "" else int(i_c)
 	i_a = input("What is the column number of activity name? [1]:")
 	i_a = 1 if i_a == "" else int(i_a)
-	i_t = input("What is the column number of imestamp? [2]:")
+	i_t = input("What is the column number of timestamp? [2]:")
 	i_t = 2 if i_t == "" else int(i_t)
 
 	log = []
@@ -79,6 +80,7 @@ else:
 log.sort(key = lambda event: event.timestamp)
 #2.1 Define the time span
 timespan = (log[-1].timestamp - log[0].timestamp).total_seconds()
+last_timestamp=log[-1].timestamp
 #3. Define the predecessor of each event in a trace
 
 last_event = {}
@@ -172,6 +174,16 @@ class Graph:
 			dot_string += "\t}\n"
 		dot_string += "}"
 		return dot_string
+
+#4.1 Define flattening function
+def flatten(in_list):
+	out_list = []
+	for item in in_list:
+		if isinstance(item, list):
+			out_list.extend(flatten(item))
+		else:
+			out_list.append(item)
+	return out_list
 
 #5. Build the graph
 if(args.verbose):
@@ -286,60 +298,84 @@ if(args.measures):
 
 
 #6.2. Calculate the graph complexity measure
-graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
-for i in range(1,pa.c+1):
-	#print(graph_complexity)
-	e = len([AT for AT in pa.nodes if AT.c == i])
-	graph_complexity -= math.log(e)*e
 
-print("graph complexity = "+str(graph_complexity))
+def graph_complexity(pa):
+	graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
+	for i in range(1,pa.c+1):
+		#print(graph_complexity)
+		e = len([AT for AT in pa.nodes if AT.c == i])
+		graph_complexity -= math.log(e)*e
 
-log_complexity = math.log(len(log))*len(log)
-for i in range(1,pa.c+1):
-	#print(log_complexity)
-	e = 0
-	for AT in pa.nodes:
-		if AT.c == i:
-			e += len(AT.sequence)
-	log_complexity -= math.log(e)*e
+	return graph_complexity
 
-print("log complexity = "+str(log_complexity))
+print("graph complexity: "+str(graph_complexity(pa)))
 
-#log complexity with exponential forgetting
-log_complexity_linear = 0
-for event in log:
-	log_complexity_linear += 1 - (log[-1].timestamp - event.timestamp).total_seconds()/timespan
+def log_complexity(pa, forgetting = None):
 
-log_complexity_linear = math.log(log_complexity_linear) * log_complexity_linear
+	if(not forgetting):
+		length = 0
+		for AT in flatten(pa.activity_types.values()):
+			length += len(AT.sequence)
+		log_complexity = math.log(length)*length
+		for i in range(1,pa.c+1):
+			#print(log_complexity)
+			e = 0
+			for AT in pa.nodes:
+				if AT.c == i:
+					e += len(AT.sequence)
+			log_complexity -= math.log(e)*e
 
-for i in range(1,pa.c+1):
-	e = 0
-	for AT in pa.nodes:
-		if AT.c == i:
+		return log_complexity
+	elif(forgetting=="linear"):
+		#log complexity with linear forgetting
+		log_complexity_linear = 0
+		for AT in flatten(pa.activity_types.values()):
 			for event in AT.sequence:
-				e += 1 - (log[-1].timestamp - event.timestamp).total_seconds()/timespan
-	log_complexity_linear -= math.log(e)*e
+				log_complexity_linear += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
 
-print("log complexity with linear forgetting: "+str(log_complexity_linear))
+		log_complexity_linear = math.log(log_complexity_linear) * log_complexity_linear
 
-#log complexity with exponential forgetting
-log_complexity_exp = 0
-k=1
-for event in log:
-	log_complexity_exp += math.exp((-(log[-1].timestamp - event.timestamp).total_seconds()/timespan)*k)
+		for i in range(1,pa.c+1):
+			e = 0
+			for AT in pa.nodes:
+				if AT.c == i:
+					for event in AT.sequence:
+						e += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
+			log_complexity_linear -= math.log(e)*e
 
-log_complexity_exp = math.log(log_complexity_exp) * log_complexity_exp
+		return log_complexity_linear
 
-for i in range(1,pa.c+1):
-	e = 0
-	for AT in pa.nodes:
-		if AT.c == i:
+	elif(forgetting=="exp"):
+		#log complexity with exponential forgetting
+		log_complexity_exp = 0
+		k=1
+		for AT in flatten(pa.activity_types.values()):
 			for event in AT.sequence:
-				e += math.exp((-(log[-1].timestamp - event.timestamp).total_seconds()/timespan)*k)
-	log_complexity_exp -= math.log(e)*e
+				log_complexity_exp += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
 
-print("log complexity with exponential forgetting: "+str(log_complexity_exp))
+		log_complexity_exp = math.log(log_complexity_exp) * log_complexity_exp
 
+		for i in range(1,pa.c+1):
+			e = 0
+			for AT in pa.nodes:
+				if AT.c == i:
+					for event in AT.sequence:
+						e += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
+			log_complexity_exp -= math.log(e)*e
+		return log_complexity_exp
+	else:
+		return None
+
+print("log complexity: "+str(log_complexity(pa)))
+
+print("log complexity with linear forgetting: "+str(log_complexity(pa, "linear")))
+
+print("log complexity with exponential forgetting: "+str(log_complexity(pa, "exp")))
+
+#6.3
+# TODO calculate monthly 
+#for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp):
+#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
 #7. Show prefixes of each state
 if(args.prefix):
 	print("Prefixes:")
