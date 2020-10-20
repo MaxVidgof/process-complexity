@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import statistics
 import datetime
 from dateutil import rrule
+from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decomposition
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -286,16 +287,39 @@ if(args.measures):
 	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
 	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
 	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
+	print("Distinct traces: " + str((pa.c/m_support)*100) + "%")
 	#Pentland's Process Complexity
 	#Calculated as number of variants - variants that include loops
-	m_simple_paths = pa.c #all paths
-	for node in pa.nodes:
-		if len(node.successors) == 0:
-			p = node.getPrefix()
-			if len(p.split(",")) > len(set(p.split(","))):
-				m_simple_paths -= 1
-	print("Number of simple paths: " + str(m_simple_paths)) #remove this method as it refers to process _model_ not _log_
-
+	#m_simple_paths = pa.c #all paths
+	#for node in pa.nodes:
+	#	if len(node.successors) == 0:
+	#		p = node.getPrefix()
+	#		if len(p.split(",")) > len(set(p.split(","))):
+	#			m_simple_paths -= 1
+	#print("?Number of simple paths: " + str(m_simple_paths)) #remove this method as it refers to process _model_ not _log_
+	action_network = []
+	for i in range (m_variety):
+		action_network.append([])
+		for j in range(m_variety):
+			action_network[i].append(0)
+	evt_lexicon = set.union(*[event_classes[case_id] for case_id in event_classes])
+	evt_lexicon = list(evt_lexicon)
+	n_transitions = 0
+	for event in log:
+		if event.predecessor:
+			action_network[evt_lexicon.index(event.predecessor.activity)][evt_lexicon.index(event.activity)] += 1
+			n_transitions +=1
+	m_dev_from_rand = 0
+	a_mean = n_transitions/(m_variety**2)
+	for i in range(len(action_network)):
+		for j in range(len(action_network[i])):
+			m_dev_from_rand += ((action_network[i][j]-a_mean)/n_transitions)**2
+	m_dev_from_rand = math.sqrt(m_dev_from_rand)
+	m_dev_from_rand = 1 - m_dev_from_rand
+	print("Deviation from random: " + str(m_dev_from_rand))
+	#print("L-Z dec: " + ";".join(lempel_ziv_decomposition("".join([event.activity for event in log]))))
+	m_l_z = lempel_ziv_complexity(tuple([event.activity for event in log]))
+	print("Lempel-Ziv complexity: " + str(m_l_z))
 
 #6.2. Calculate the graph complexity measure
 
