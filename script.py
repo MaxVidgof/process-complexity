@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 import statistics
 import datetime
 from dateutil import rrule
-from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decomposition
+from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decomposition # pip install lempel_ziv_complexity
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -18,6 +18,8 @@ parser.add_argument("-v", "--verbose", dest="verbose", help="verbose output", de
 parser.add_argument("-m", "--measures", dest="measures", help="calculate other complexity measures", default=False, action="store_true")
 parser.add_argument("--hide-event", dest="subg", help="hide event nodes, keep only activity types", default=True, action="store_false")
 parser.add_argument("--png", dest="png", help="draw the graph in PNG (may fail if the graph is too big", default=False, action="store_true")
+parser.add_argument("-e", "--exponential-forgetting", dest="ex_k", help="coefficient for exponential forgetting", default=1)
+
 args = parser.parse_args()
 #1 Define the event class with slots
 
@@ -44,7 +46,7 @@ if args.file==None:
 
 if args.file.split(".")[-1]=="xes":
 	input_file = args.file  #"/home/max/Downloads/Sepsis Cases - Event Log.xes"
-	from pm4py.objects.log.importer.xes import factory as xes_importer
+	from pm4py.objects.log.importer.xes import importer as xes_importer
 	pm4py_log = xes_importer.apply(input_file)
 	log = []
 	for trace in pm4py_log:
@@ -320,22 +322,35 @@ if(args.measures):
 	#print("L-Z dec: " + ";".join(lempel_ziv_decomposition("".join([event.activity for event in log]))))
 	m_l_z = lempel_ziv_complexity(tuple([event.activity for event in log]))
 	print("Lempel-Ziv complexity: " + str(m_l_z))
+	# Haerem and Pentland task complexity
+	#TODO: of which task???
+	# root node as 0th task in all variants,
+	m_pentland_task = 0
+	for n in pa.nodes:
+		if len(n.successors)==0:
+			m_pentland_task += n.j
+	print("Pentland's Task complexity: "+str(m_pentland_task))
 
 #6.2. Calculate the graph complexity measure
+print("---Entropy measures---")
 
 def graph_complexity(pa):
 	graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
+	normalize = graph_complexity
 	for i in range(1,pa.c+1):
 		#print(graph_complexity)
 		e = len([AT for AT in pa.nodes if AT.c == i])
 		graph_complexity -= math.log(e)*e
 
-	return graph_complexity
+	return graph_complexity,(graph_complexity/normalize)
 
-print("graph complexity: "+str(graph_complexity(pa)))
+# graph entropy
+var_ent = graph_complexity(pa)
+print("Variant entropy: "+str(var_ent[0]))
+print("Normalized variant entropy: "+str(var_ent[1]))
 
-def log_complexity(pa, forgetting = None):
-
+def log_complexity(pa, forgetting = None, k=1):
+	normalize = len(log)*math.log(len(log))
 	if(not forgetting):
 		length = 0
 		for AT in flatten(pa.activity_types.values()):
@@ -349,7 +364,7 @@ def log_complexity(pa, forgetting = None):
 					e += len(AT.sequence)
 			log_complexity -= math.log(e)*e
 
-		return log_complexity
+		return log_complexity,(log_complexity/normalize)
 	elif(forgetting=="linear"):
 		#log complexity with linear forgetting
 		log_complexity_linear = 0
@@ -367,12 +382,11 @@ def log_complexity(pa, forgetting = None):
 						e += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
 			log_complexity_linear -= math.log(e)*e
 
-		return log_complexity_linear
+		return log_complexity_linear,(log_complexity_linear/normalize)
 
 	elif(forgetting=="exp"):
 		#log complexity with exponential forgetting
 		log_complexity_exp = 0
-		k=1
 		for AT in flatten(pa.activity_types.values()):
 			for event in AT.sequence:
 				log_complexity_exp += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
@@ -386,16 +400,25 @@ def log_complexity(pa, forgetting = None):
 					for event in AT.sequence:
 						e += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
 			log_complexity_exp -= math.log(e)*e
-		return log_complexity_exp
+		return log_complexity_exp,(log_complexity_exp/normalize)
 	else:
-		return None
+		return None,None
 
-print("log complexity: "+str(log_complexity(pa)))
+# log complexity
+seq_ent = log_complexity(pa)
 
-print("log complexity with linear forgetting: "+str(log_complexity(pa, "linear")))
+print("Sequence entropy: "+str(seq_ent[0]))
+print("Normalized equence entropy: "+str(seq_ent[1]))
 
-print("log complexity with exponential forgetting: "+str(log_complexity(pa, "exp")))
+seq_ent_lin = log_complexity(pa, "linear")
 
+print("Sequence entropy with linear forgetting: "+str(seq_ent_lin[0]))
+print("Normalized sequence entropy with linear forgetting: "+str(seq_ent_lin[1]))
+
+seq_ent_exp = log_complexity(pa, "exp",float(args.ex_k))
+#print("log complexity with exponential forgetting (k=1): "+str(log_complexity(pa, "exp")))
+print("Sequence entropy with exponential forgetting (k="+str(args.ex_k)+"): "+str(seq_ent_exp[0]))
+print("Normalized sequence entropy with exponential forgetting (k="+str(args.ex_k)+"): "+str(seq_ent_exp[1]))
 #6.3
 # TODO calculate monthly 
 #for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp):
