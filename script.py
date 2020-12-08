@@ -4,9 +4,10 @@ import math
 import pm4py
 from argparse import ArgumentParser
 import statistics
-import datetime
+from datetime import datetime
 from dateutil import rrule
 from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decomposition # pip install lempel_ziv_complexity
+import time
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -21,6 +22,9 @@ parser.add_argument("--png", dest="png", help="draw the graph in PNG (may fail i
 parser.add_argument("-e", "--exponential-forgetting", dest="ex_k", help="coefficient for exponential forgetting", default=1)
 
 args = parser.parse_args()
+
+times = [0] * 7
+
 #1 Define the event class with slots
 
 event_id_counter = 0
@@ -41,6 +45,7 @@ class Event:
 #TODO:
 #Text wrap for event nodes
 #Automatically set font size
+s = time.perf_counter() # start reading the log
 if args.file==None:
 	raise Exception("No file specified")
 
@@ -76,15 +81,20 @@ elif (args.file.split(".")[-1]=="csv"):
 		parts = line.split(i_d.strip())
 	#	if parts[0] not in log:
 	#		log[parts[0]] = []
-		log.append(Event(parts[i_c], parts[i_a], datetime.datetime.fromisoformat(parts[i_t])))
+		log.append(Event(parts[i_c], parts[i_a], datetime.fromisoformat(parts[i_t])))
 else:
 	raise Exception("File type not recognized, should be xes or csv")
 
 log.sort(key = lambda event: event.timestamp)
+
+times[0] = time.perf_counter()-s
+
 #2.1 Define the time span
 timespan = (log[-1].timestamp - log[0].timestamp).total_seconds()
 last_timestamp=log[-1].timestamp
 #3. Define the predecessor of each event in a trace
+#Time not measred for 2.1
+s = time.perf_counter()
 
 last_event = {}
 
@@ -98,6 +108,8 @@ if(args.verbose):
 	print("Case ID, Activity, Timestamp, Predecessor, Event ID")
 	for event in log:
 		print(",".join([event.case_id, event.activity, str(event.timestamp), (event.predecessor.activity + "-" + str(event.predecessor.event_id) if event.predecessor else "-"), str(event.event_id)]))
+
+times[1] = time.perf_counter()-s
 
 #4. Define the classes for the prefix automaton
 
@@ -189,6 +201,7 @@ def flatten(in_list):
 	return out_list
 
 #5. Build the graph
+s = time.perf_counter()
 if(args.verbose):
 	print("Building the prefix automaton...")
 pa = Graph()
@@ -223,6 +236,11 @@ for event in log:
 	#	pa.c += 1
 	#	current_activity_type = pa.addNode(event.activity, pa.root, pa.c)
 	#	current_activity_type.sequence.append(event)
+
+times[2] = time.perf_counter()-s
+
+s = time.perf_counter()
+
 if(args.dot):
 	print("DOT specification:")
 	print(pa.draw())
@@ -234,6 +252,10 @@ if(args.graph):
 	print("Saved DOT specification to t.gv")
 	subprocess.call(["dot", "-Tpng" if args.png else "-Tsvg", "t.gv", "-o", "t."+("png" if args.png else "svg")]) #-Tpng
 	print("Saved graph to t."+("png" if args.png else "svg"))
+
+times[3] = time.perf_counter()-s
+
+s = time.perf_counter()
 
 #6. Calculate complexity measures
 #6.1. Log complexity metrics
@@ -272,18 +294,19 @@ if(args.measures):
 	print("Time granularity: " + str(m_time_granularity) + " (seconds)")
 	m_structure = 1 - ((len(set.union(*[df_relations[case_id] for case_id in df_relations])))/(m_variety**2))
 	print("Structure: " + str(m_structure))
-	affinities = []
-	for case_id_1 in df_relations:
-		for case_id_2 in df_relations:
-			if case_id_1 != case_id_2:
-				# note that affinities are only calculated for distinct traces
-				# also note that affinity is calculated twice for each pair of traces, e.g. (1,2) and (2,1),
-				# this does not affect the result but does double the calculation time
-				# however, it prevents possible errors when comparing event IDs that are strungs
-				affinity = len(set.intersection(df_relations[case_id_1], df_relations[case_id_2]))/len(set.union(df_relations[case_id_1], df_relations[case_id_2]))
-				affinities.append(affinity)
-	m_affinity = statistics.mean(affinities)
-	print("Affinity: " + str(m_affinity))
+	#commented out for a moment
+	#affinities = []
+	#for case_id_1 in df_relations:
+	#	for case_id_2 in df_relations:
+	#		if case_id_1 != case_id_2:
+	#			# note that affinities are only calculated for distinct traces
+	#			# also note that affinity is calculated twice for each pair of traces, e.g. (1,2) and (2,1),
+	#			# this does not affect the result but does double the calculation time
+	#			# however, it prevents possible errors when comparing event IDs that are strungs
+	#			affinity = len(set.intersection(df_relations[case_id_1], df_relations[case_id_2]))/len(set.union(df_relations[case_id_1], df_relations[case_id_2]))
+	#			affinities.append(affinity)
+	#m_affinity = statistics.mean(affinities)
+	#print("Affinity: " + str(m_affinity))
 	m_trace_length = {}
 	m_trace_length["min"] = min([trace_lengths[case_id] for case_id in trace_lengths])
 	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
@@ -331,6 +354,7 @@ if(args.measures):
 			m_pentland_task += n.j
 	print("Pentland's Task complexity: "+str(m_pentland_task))
 
+times[4] = time.perf_counter()-s
 #6.2. Calculate the graph complexity measure
 print("---Entropy measures---")
 
@@ -345,9 +369,11 @@ def graph_complexity(pa):
 	return graph_complexity,(graph_complexity/normalize)
 
 # graph entropy
+s = time.perf_counter()
 var_ent = graph_complexity(pa)
 print("Variant entropy: "+str(var_ent[0]))
 print("Normalized variant entropy: "+str(var_ent[1]))
+times[5] = time.perf_counter()-s
 
 def log_complexity(pa, forgetting = None, k=1):
 	normalize = len(log)*math.log(len(log))
@@ -405,6 +431,8 @@ def log_complexity(pa, forgetting = None, k=1):
 		return None,None
 
 # log complexity
+s = time.perf_counter()
+
 seq_ent = log_complexity(pa)
 
 print("Sequence entropy: "+str(seq_ent[0]))
@@ -419,6 +447,8 @@ seq_ent_exp = log_complexity(pa, "exp",float(args.ex_k))
 #print("log complexity with exponential forgetting (k=1): "+str(log_complexity(pa, "exp")))
 print("Sequence entropy with exponential forgetting (k="+str(args.ex_k)+"): "+str(seq_ent_exp[0]))
 print("Normalized sequence entropy with exponential forgetting (k="+str(args.ex_k)+"): "+str(seq_ent_exp[1]))
+
+times[6] = time.perf_counter()-s
 #6.3
 # TODO calculate monthly 
 #for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp):
@@ -429,3 +459,13 @@ if(args.prefix):
 	for node in pa.nodes:
 		if node != pa.root:
 			print ("s"+"^"+str(node.c)+"_"+str(node.j) + ":" + node.getPrefix())
+
+print("Time measurements:")
+print("Reading log: "+str(times[0])+" seconds")
+print("Defining predecessors: "+str(times[1])+" seconds")
+print("Building prefix automaton: "+str(times[2])+" seconds")
+print("Drawing the graph: "+str(times[3])+" seconds")
+print("Calculating log complexity measures: "+str(times[4])+" seconds")
+print("Calculating graph entropy: "+str(times[5])+" seconds")
+print("Calculating sequence complexity: "+str(times[6])+" seconds")
+
