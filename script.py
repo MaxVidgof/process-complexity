@@ -53,13 +53,10 @@ if args.file.split(".")[-1]=="xes":
 	input_file = args.file  #"/home/max/Downloads/Sepsis Cases - Event Log.xes"
 	from pm4py.objects.log.importer.xes import importer as xes_importer
 	pm4py_log = xes_importer.apply(input_file)
-	log = []
-	for trace in pm4py_log:
-		for event in trace:
-			log.append(Event(trace.attributes['concept:name'], event['concept:name'].strip().replace(" ", "_"), event['time:timestamp']))
 elif (args.file.split(".")[-1]=="csv"):
 	subprocess.call(["head", args.file])
-	i_h = input("Does the file have a header? [y/N]:" or "n")
+	i_h = input("Does the file have a header? [y/N]:") or "n"
+	h = 0 if i_h != "n" else None
 	i_d = input("What is the delimiter? [,]:") or ","
 	i_c = input("What is the column number of case ID? [0]:")
 	i_c = 0 if i_c == "" else int(i_c)
@@ -68,22 +65,43 @@ elif (args.file.split(".")[-1]=="csv"):
 	i_t = input("What is the column number of timestamp? [2]:")
 	i_t = 2 if i_t == "" else int(i_t)
 
-	log = []
-	f = open(args.file, 'r')
+	import pandas as pd
+	from pm4py.objects.conversion.log import converter as log_converter
+	from pm4py.objects.log.util import dataframe_utils
 
-	if i_h=="y":
-		header = next(f, None)
+	log_csv = pd.read_csv(args.file, sep=i_d, header=h)
+	log_csv.rename(columns={i_c:'case', i_a:'concept:name', i_t:'time:timestamp'}, inplace=True)
+	for col in log_csv.columns:
+		if isinstance(col, int):
+			log_csv.rename(columns={col:'column'+str(col)}, inplace=True)
+	log_csv = dataframe_utils.convert_timestamp_columns_in_df(log_csv)
+	log_csv = log_csv.sort_values('time:timestamp')
+	parameters = {log_converter.Variants.TO_EVENT_LOG.value.Parameters.CASE_ID_KEY: 'case'}
+	print(log_csv)
+	pm4py_log = log_converter.apply(log_csv, parameters=parameters, variant=log_converter.Variants.TO_EVENT_LOG)
 
-	for line in f:
-		line = line.strip()
-		if len(line) == 0:
-			continue
-		parts = line.split(i_d.strip())
+	#log = []
+	#f = open(args.file, 'r')
+
+	#if i_h=="y":
+	#	header = next(f, None)
+
+	#for line in f:
+	#	line = line.strip()
+	#	if len(line) == 0:
+	#		continue
+	#	parts = line.split(i_d.strip())
 	#	if parts[0] not in log:
 	#		log[parts[0]] = []
-		log.append(Event(parts[i_c], parts[i_a], datetime.fromisoformat(parts[i_t])))
+	#	log.append(Event(parts[i_c], parts[i_a], datetime.fromisoformat(parts[i_t])))
 else:
 	raise Exception("File type not recognized, should be xes or csv")
+
+log = []
+for trace in pm4py_log:
+	for event in trace:
+		log.append(Event(trace.attributes['concept:name'], event['concept:name'].strip().replace(" ", "_"), event['time:timestamp']))
+
 
 log.sort(key = lambda event: event.timestamp)
 
@@ -262,7 +280,7 @@ s = time.perf_counter()
 if(args.measures):
 	m_magnitude = len(log) # magnitude - number of events in a log
 	print("Magnitude: " + str(m_magnitude))
-	m_support = len(last_event.keys()) # support - number of traces in a log
+	m_support = len(pm4py_log) # support - number of traces in a log
 	print("Support: " + str(m_support))
 
 	event_classes = {}
@@ -294,6 +312,10 @@ if(args.measures):
 	print("Time granularity: " + str(m_time_granularity) + " (seconds)")
 	m_structure = 1 - ((len(set.union(*[df_relations[case_id] for case_id in df_relations])))/(m_variety**2))
 	print("Structure: " + str(m_structure))
+
+	#Jan's bit vectors
+	#hashmap = {}
+
 	#commented out for a moment
 	#affinities = []
 	#for case_id_1 in df_relations:
@@ -313,6 +335,11 @@ if(args.measures):
 	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
 	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
 	print("Distinct traces: " + str((pa.c/m_support)*100) + "%")
+	from pm4py.algo.filtering.log.variants import variants_filter
+	var = variants_filter.get_variants(pm4py_log)
+	#print("Here: "+str(pa.c/m_support==len(var)/len(pm4py_log)))
+	print("Graph partitions: "+str(pa.c))
+	print("Variants: "+str(len(var)))
 	#Pentland's Process Complexity
 	#Calculated as number of variants - variants that include loops
 	#m_simple_paths = pa.c #all paths
