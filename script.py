@@ -134,7 +134,7 @@ times[1] = time.perf_counter()-s
 class Node:
 	def __init__(self, name):
 		self.name = name
-		self.successors = []
+		self.successors = {}
 		self.c = 0
 		self.j = 0
 
@@ -149,7 +149,7 @@ class ActivityType(Node):
 		self.activity = activity
 		self.sequence = []
 		self.predecessor = predecessor
-		self.successors = []
+		self.successors = {}
 		self.c = c
 		self.j = predecessor.j + 1
 		self.label = "<" + "s" + "<sup>" + str(c) + "</sup>" + "<sub>" + str(self.j) + "</sub>" + ">"
@@ -171,7 +171,7 @@ class Graph:
 
 	def addNode(self, activity, predecessor, c):
 		node = ActivityType(activity, predecessor, c)
-		node.predecessor.successors.append(node)
+		node.predecessor.successors[activity] = node
 		self.nodes.append(node)
 		if activity not in self.activity_types:
 			self.activity_types[activity] = []
@@ -224,25 +224,24 @@ if(args.verbose):
 	print("Building the prefix automaton...")
 pa = Graph()
 
+last_at = {}
+
 for event in log:
 	if(event.predecessor):
 		#Find the ActivityType of the predecessor event
-		pred_activity_type = None
 		if event.predecessor != pa.root:
-			for node in pa.activity_types[event.predecessor.activity]:
-				if event.predecessor in node.sequence:
-					pred_activity_type = node
-			if pred_activity_type == None:
+			if (event.case_id in last_at and event.predecessor in last_at[event.case_id].sequence):
+				pred_activity_type = last_at[event.case_id]
+			else:
 				print("Error")
 	else:
 		pred_activity_type = pa.root
 
 	#Check if the predecessor's ActivityType has a succeeding ActivityType that we need
 	current_activity_type = None
-	for node in pred_activity_type.successors:
-		if node.activity == event.activity:
-			current_activity_type = node
-	if current_activity_type==None:
+	if(event.activity in pred_activity_type.successors.keys()):
+		current_activity_type = pred_activity_type.successors[event.activity]
+	else:
 		if len(pred_activity_type.successors) > 0:
 			pa.c += 1
 			curr_c = pa.c
@@ -250,10 +249,8 @@ for event in log:
 			curr_c = pred_activity_type.c if pred_activity_type != pa.root else pa.c
 		current_activity_type = pa.addNode(event.activity, pred_activity_type, curr_c)
 	current_activity_type.sequence.append(event)
-	#else:
-	#	pa.c += 1
-	#	current_activity_type = pa.addNode(event.activity, pa.root, pa.c)
-	#	current_activity_type.sequence.append(event)
+
+	last_at[event.case_id] = current_activity_type
 
 times[2] = time.perf_counter()-s
 
@@ -334,12 +331,10 @@ if(args.measures):
 	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
 	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
 	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
-	print("Distinct traces: " + str((pa.c/m_support)*100) + "%")
 	from pm4py.algo.filtering.log.variants import variants_filter
 	var = variants_filter.get_variants(pm4py_log)
 	#print("Here: "+str(pa.c/m_support==len(var)/len(pm4py_log)))
-	print("Graph partitions: "+str(pa.c))
-	print("Variants: "+str(len(var)))
+	print("Distinct traces: " + str((len(var)/m_support)*100) + "%")
 	#Pentland's Process Complexity
 	#Calculated as number of variants - variants that include loops
 	#m_simple_paths = pa.c #all paths
