@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python3.8
 import subprocess
 import math
 import pm4py
@@ -8,6 +8,7 @@ from datetime import datetime
 from dateutil import rrule
 from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decomposition # pip install lempel_ziv_complexity
 import time
+from BitVector import BitVector
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -125,7 +126,7 @@ for event in log:
 if(args.verbose):
 	print("Case ID, Activity, Timestamp, Predecessor, Event ID")
 	for event in log:
-		print(",".join([event.case_id, event.activity, str(event.timestamp), (event.predecessor.activity + "-" + str(event.predecessor.event_id) if event.predecessor else "-"), str(event.event_id)]))
+		print(",".join([str(event.case_id), event.activity, str(event.timestamp), (event.predecessor.activity + "-" + str(event.predecessor.event_id) if event.predecessor else "-"), str(event.event_id)]))
 
 times[1] = time.perf_counter()-s
 
@@ -310,9 +311,40 @@ if(args.measures):
 	m_structure = 1 - ((len(set.union(*[df_relations[case_id] for case_id in df_relations])))/(m_variety**2))
 	print("Structure: " + str(m_structure))
 
-	#Jan's bit vectors
-	#hashmap = {}
+	from pm4py.algo.filtering.log.variants import variants_filter
+	var = variants_filter.get_variants(pm4py_log)
 
+	#Jan's bit vectors
+	if(args.verbose):
+		 print("Calculating affinity")
+	hashmap = {}
+	evts = set([evt['concept:name'] for trace in pm4py_log for evt in trace])
+	num_act = len(evts)
+	i=0
+	for event in evts:
+		for event_follows in evts:
+			hashmap[(event, event_follows)]=i
+			i += 1
+	aff = {}
+	for variant in var.keys():
+		aff[variant] = [0,0]
+		aff[variant][0] = len(var[variant])
+		aff[variant][1] = BitVector(size=num_act**2)
+		for i in range(1, len(var[variant][0])):
+			aff[variant][1][hashmap[(var[variant][0][i-1]['concept:name'], var[variant][0][i]['concept:name'])]] = 1
+
+	m_affinity=0
+	for v1 in aff:
+		for v2 in aff:
+			if(args.verbose):
+				 print(v1+"-"+v2)
+			overlap = (aff[v1][1] & aff[v2][1]).count_bits_sparse()
+			union = (aff[v1][1] | aff[v2][1]).count_bits_sparse()
+			if(args.verbose):
+				 print(str(overlap)+"/"+str(union))
+			m_affinity += (overlap/union)*aff[v1][0]*aff[v2][0]
+	m_affinity /= (sum([aff[v][0] for v in aff]))**2
+	print("Affinity: "+str(m_affinity))
 	#commented out for a moment
 	#affinities = []
 	#for case_id_1 in df_relations:
@@ -331,8 +363,6 @@ if(args.measures):
 	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
 	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
 	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
-	from pm4py.algo.filtering.log.variants import variants_filter
-	var = variants_filter.get_variants(pm4py_log)
 	#print("Here: "+str(pa.c/m_support==len(var)/len(pm4py_log)))
 	print("Distinct traces: " + str((len(var)/m_support)*100) + "%")
 	#Pentland's Process Complexity
