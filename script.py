@@ -1,4 +1,6 @@
 #!/usr/bin/env python3.8
+import os
+import pandas as pd
 import subprocess
 import math
 import pm4py
@@ -6,9 +8,12 @@ from argparse import ArgumentParser
 import statistics
 from datetime import datetime
 from dateutil import rrule
+from dateutil.relativedelta import relativedelta
+import calendar
 from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decomposition # pip install lempel_ziv_complexity
 import time
 from BitVector import BitVector
+import matplotlib.pyplot as plt
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -21,6 +26,7 @@ parser.add_argument("-m", "--measures", dest="measures", help="calculate other c
 parser.add_argument("--hide-event", dest="subg", help="hide event nodes, keep only activity types", default=True, action="store_false")
 parser.add_argument("--png", dest="png", help="draw the graph in PNG (may fail if the graph is too big", default=False, action="store_true")
 parser.add_argument("-e", "--exponential-forgetting", dest="ex_k", help="coefficient for exponential forgetting", default=1)
+parser.add_argument("-t", dest="change", help="calculate complexity growth over time", default=False,action="store_true")
 
 args = parser.parse_args()
 
@@ -50,6 +56,8 @@ s = time.perf_counter() # start reading the log
 if args.file==None:
 	raise Exception("No file specified")
 
+base_filename = ".".join(os.path.basename(args.file).split('.')[0:-1])
+
 if args.file.split(".")[-1]=="xes":
 	input_file = args.file  #"/home/max/Downloads/Sepsis Cases - Event Log.xes"
 	from pm4py.objects.log.importer.xes import importer as xes_importer
@@ -66,7 +74,6 @@ elif (args.file.split(".")[-1]=="csv"):
 	i_t = input("What is the column number of timestamp? [2]:")
 	i_t = 2 if i_t == "" else int(i_t)
 
-	import pandas as pd
 	from pm4py.objects.conversion.log import converter as log_converter
 	from pm4py.objects.log.util import dataframe_utils
 
@@ -203,7 +210,7 @@ class Graph:
 			for node in self.nodes:
 				if node != self.root:
 					dot_string += "\t\t" + "\"" + str(node.sequence[0].event_id) + "\""  #"_".join([ str(event.event_id) for event in node.sequence]) + "\"" #",".join #event.activity+str(event.event_id)
-					dot_string += " [label=<" + ",".join([event.activity + "<sup>" + event.case_id + "</sup>" + "<sub>" + str(event.event_id) + "</sub>" for event in node.sequence]) + ">];\n"
+					dot_string += " [label=<" + ",".join([event.activity + "<sup>" + str(event.case_id) + "</sup>" + "<sub>" + str(event.event_id) + "</sub>" for event in node.sequence]) + ">];\n"
 					dot_string += "\t\t"+node.name+" -> "+"\""+ str(node.sequence[0].event_id) + "\";\n"  #"_".join([ str(event.event_id) for event in node.sequence])+"\";\n" #event.activity+str(event.event_id)
 			dot_string += "\t}\n"
 		dot_string += "}"
@@ -502,9 +509,79 @@ print("Normalized sequence entropy with exponential forgetting (k="+str(args.ex_
 
 times[6] = time.perf_counter()-s
 #6.3
-# TODO calculate monthly 
-#for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp):
-#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
+if(args.change):
+	# TODO calculate monthly 
+	# Variant II - gradually increasing complexity
+	def monthly_complexity(pa, end):
+		active_nodes = [node for node in pa.nodes if node != pa.root and len([event for event in node.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])>0] #note: comparing UTC timestamps
+		graph_complexity = math.log(len(active_nodes)) * (len(active_nodes))
+		#normalize = graph_complexity
+		for i in range(1,pa.c+1):
+			#print(graph_complexity)
+			e = len([AT for AT in active_nodes if AT.c == i])
+			if (e > 0):
+				graph_complexity -= math.log(e)*e
+
+		return graph_complexity #,(graph_complexity/normalize)
+	print("Monthly complexity")
+	dates=[]
+	complexities=[]
+	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
+	#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
+		dates.append(dt)
+		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
+		complexity = monthly_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ))
+		print(str(complexity))
+		complexities.append(complexity)
+
+	df = pd.DataFrame()
+	df["Date"]=dates
+	df["Complexity"]=complexities
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", "Complexity")
+	plt.savefig(base_filename+"_Entropy_growth.png")
+	#print(pa.nodes[2].sequence[0].timestamp)
+
+##############
+	def monthly_log_complexity(pa, end):
+		#normalize = len(log)*math.log(len(log))
+		#only without forgetting
+		length = 0
+		for AT in flatten(pa.activity_types.values()):
+			length += len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])
+		log_complexity = math.log(length)*length
+		for i in range(1,pa.c+1):
+			#print(log_complexity)
+			e = 0
+			for AT in pa.nodes:
+				if AT.c == i:
+					e += len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])
+			if(e>0):
+				log_complexity -= math.log(e)*e
+		return log_complexity #,(log_complexity/normalize)
+
+	print("Monthly log entropy")
+	dates=[]
+	complexities=[]
+	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
+	#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
+		dates.append(dt)
+		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
+		complexity = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ))
+		print(str(complexity))
+		complexities.append(complexity)
+
+	df = pd.DataFrame()
+	df["Date"]=dates
+	df["Complexity"]=complexities
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", "Complexity")
+	plt.savefig(base_filename+"_Log_entropy_growth.png")
+
+
+
+###############
+
 #7. Show prefixes of each state
 if(args.prefix):
 	print("Prefixes:")
