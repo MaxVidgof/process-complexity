@@ -515,70 +515,248 @@ if(args.change):
 	def monthly_complexity(pa, end):
 		active_nodes = [node for node in pa.nodes if node != pa.root and len([event for event in node.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])>0] #note: comparing UTC timestamps
 		graph_complexity = math.log(len(active_nodes)) * (len(active_nodes))
-		#normalize = graph_complexity
+		normalize1 = graph_complexity
+		normalize2 = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
 		for i in range(1,pa.c+1):
 			#print(graph_complexity)
 			e = len([AT for AT in active_nodes if AT.c == i])
 			if (e > 0):
 				graph_complexity -= math.log(e)*e
 
-		return graph_complexity #,(graph_complexity/normalize)
+		return graph_complexity,(graph_complexity/normalize1),(graph_complexity/normalize2)
 	print("Monthly complexity")
 	dates=[]
 	complexities=[]
+	complexities_norm1=[]
+	complexities_norm2=[]
 	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
 	#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
 		dates.append(dt)
 		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
-		complexity = monthly_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ))
-		print(str(complexity))
+		complexity, complexity_norm1, complexity_norm2 = monthly_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ))
+		print("Complexity: "+str(complexity))
+		print("Complexity_norm1: "+str(complexity_norm1))
+		print("Complexity_norm2: "+str(complexity_norm2))
 		complexities.append(complexity)
+		complexities_norm1.append(complexity_norm1)
+		complexities_norm2.append(complexity_norm2)
+
 
 	df = pd.DataFrame()
 	df["Date"]=dates
 	df["Complexity"]=complexities
+	df["Complexity_norm1"]=complexities_norm1
+	df["Complexity_norm2"]=complexities_norm2
 	plt.figure(figsize=(1920,1080))
 	df.plot("Date", "Complexity")
 	plt.savefig(base_filename+"_Entropy_growth.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", ["Complexity_norm1", "Complexity_norm2"])
+	plt.savefig(base_filename+"_Entropy_growth_normalized.png")
+
 	#print(pa.nodes[2].sequence[0].timestamp)
 
 ##############
-	def monthly_log_complexity(pa, end):
-		#normalize = len(log)*math.log(len(log))
-		#only without forgetting
-		length = 0
-		for AT in flatten(pa.activity_types.values()):
-			length += len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])
-		log_complexity = math.log(length)*length
-		for i in range(1,pa.c+1):
-			#print(log_complexity)
-			e = 0
-			for AT in pa.nodes:
-				if AT.c == i:
-					e += len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])
-			if(e>0):
-				log_complexity -= math.log(e)*e
-		return log_complexity #,(log_complexity/normalize)
+	def monthly_log_complexity(pa, end, forgetting=None, k=1):
+		normalize1 = sum([len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)]) for AT in flatten(pa.activity_types.values())])
+		normalize1 = normalize1*math.log(normalize1)
+		normalize2 = len(log)*math.log(len(log))
+		if(not forgetting):
+
+			length = 0
+			for AT in flatten(pa.activity_types.values()):
+				length += len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])
+			log_complexity = math.log(length)*length
+			for i in range(1,pa.c+1):
+				#print(log_complexity)
+				e = 0
+				for AT in pa.nodes:
+					if AT.c == i:
+						e += len([event for event in AT.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])
+				if(e>0):
+					log_complexity -= math.log(e)*e
+			return log_complexity,(log_complexity/normalize1), (log_complexity/normalize2)
+		elif(forgetting=="linear"):
+			#log complexity with linear forgetting
+			curr_timespan = ((end+log[0].timestamp.utcoffset()).replace(tzinfo=log[0].timestamp.tzinfo) - log[0].timestamp).total_seconds()
+			log_complexity_linear1 = 0
+			log_complexity_linear2 = 0
+			for AT in flatten(pa.activity_types.values()):
+				for event in AT.sequence:
+					if(event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)):
+						log_complexity_linear1 += 1 - ((end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo) - event.timestamp).total_seconds()/curr_timespan 
+						log_complexity_linear2 += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
+
+			log_complexity_linear1 = math.log(log_complexity_linear1) * log_complexity_linear1
+			log_complexity_linear2 = math.log(log_complexity_linear2) * log_complexity_linear2
+
+			for i in range(1,pa.c+1):
+				e1 = 0
+				e2 = 0
+				for AT in pa.nodes:
+					if AT.c == i:
+						for event in AT.sequence:
+							if(event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)):
+								e1 += 1 - ((end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo) - event.timestamp).total_seconds()/curr_timespan
+								e2 += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
+				if(e1>0):
+					log_complexity_linear1 -= math.log(e1)*e1
+				if(e2>0):
+					log_complexity_linear2 -= math.log(e2)*e2
+
+			return log_complexity_linear1,(log_complexity_linear1/normalize1),(log_complexity_linear1/normalize2),log_complexity_linear2,(log_complexity_linear2/normalize1),(log_complexity_linear2/normalize2)
+
+		elif(forgetting=="exp"):
+			#log complexity with exponential forgetting
+			curr_timespan = ((end+log[0].timestamp.utcoffset()).replace(tzinfo=log[0].timestamp.tzinfo) - log[0].timestamp).total_seconds()
+			log_complexity_exp1 = 0
+			log_complexity_exp2 = 0
+			for AT in flatten(pa.activity_types.values()):
+				for event in AT.sequence:
+					if(event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)):
+						log_complexity_exp1 += math.exp((-((end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo) - event.timestamp).total_seconds()/curr_timespan)*k)
+						log_complexity_exp2 += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
+
+			log_complexity_exp1 = math.log(log_complexity_exp1) * log_complexity_exp1
+			log_complexity_exp2 = math.log(log_complexity_exp2) * log_complexity_exp2
+
+			for i in range(1,pa.c+1):
+				e1 = 0
+				e2=0
+				for AT in pa.nodes:
+					if AT.c == i:
+						for event in AT.sequence:
+							if(event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)):
+								e1 += math.exp((-((end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo) - event.timestamp).total_seconds()/curr_timespan)*k)
+								e2 += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
+				if(e1>0):
+					log_complexity_exp1 -= math.log(e1)*e1
+				if(e2>0):
+					log_complexity_exp2 -= math.log(e2)*e2
+			return log_complexity_exp1,(log_complexity_exp1/normalize1),(log_complexity_exp1/normalize2),log_complexity_exp2,(log_complexity_exp2/normalize1),(log_complexity_exp2/normalize2)
+		else:
+			return None #,None
 
 	print("Monthly log entropy")
 	dates=[]
 	complexities=[]
+	complexities_norm1=[]
+	complexities_norm2=[]
 	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
 	#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
 		dates.append(dt)
 		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
-		complexity = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ))
-		print(str(complexity))
+		complexity, complexity_norm_1, complexity_norm2 = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ))
+		print("Complexity: "+str(complexity))
+		print("Complexity_norm1: "+str(complexity_norm1))
+		print("Complexity_norm2: "+str(complexity_norm2))
 		complexities.append(complexity)
+		complexities_norm1.append(complexity_norm1)
+		complexities_norm2.append(complexity_norm2)
 
 	df = pd.DataFrame()
 	df["Date"]=dates
 	df["Complexity"]=complexities
+	df["Complexity_norm1"]=complexities_norm1
+	df["Complexity_norm2"]=complexities_norm2
 	plt.figure(figsize=(1920,1080))
 	df.plot("Date", "Complexity")
 	plt.savefig(base_filename+"_Log_entropy_growth.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", ["Complexity_norm1", "Complexity_norm2"])
+	plt.savefig(base_filename+"_Log_entropy_growth_normalized.png")
 
+	print("Monthly entropy with linear forgetting")
+	dates=[]
+	complexities1=[]
+	complexities1_norm1=[]
+	complexities1_norm2=[]
+	complexities2=[]
+	complexities2_norm1=[]
+	complexities2_norm2=[]
+	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
+		dates.append(dt)
+		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
+		complexity1, complexity1_norm1, complexity1_norm2,complexity2, complexity2_norm1, complexity2_norm2 = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ), forgetting="linear")
+		print("Complexity1: "+str(complexity1))
+		print("Complexity1_norm1: "+str(complexity1_norm1))
+		print("Complexity1_norm2: "+str(complexity1_norm2))
+		complexities1.append(complexity1)
+		complexities1_norm1.append(complexity1_norm1)
+		complexities1_norm2.append(complexity1_norm2)
+		print("Complexity2: "+str(complexity2))
+		print("Complexity2_norm1: "+str(complexity2_norm1))
+		print("Complexity2_norm2: "+str(complexity2_norm2))
+		complexities2.append(complexity2)
+		complexities2_norm1.append(complexity2_norm1)
+		complexities2_norm2.append(complexity2_norm2)
 
+	df = pd.DataFrame()
+	df["Date"]=dates
+	df["Complexity1"]=complexities1
+	df["Complexity1_norm1"]=complexities1_norm1
+	df["Complexity1_norm2"]=complexities1_norm2
+	df["Complexity2"]=complexities2
+	df["Complexity2_norm1"]=complexities2_norm1
+	df["Complexity2_norm2"]=complexities2_norm2
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", "Complexity1")
+	plt.savefig(base_filename+"_Log_entropy_growth_linear_relative.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", ["Complexity1_norm1", "Complexity1_norm2"])
+	plt.savefig(base_filename+"_Log_entropy_growth_linear_relative_normalized.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", "Complexity2")
+	plt.savefig(base_filename+"_Log_entropy_growth_linear_absolute.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", ["Complexity2_norm1", "Complexity2_norm2"])
+	plt.savefig(base_filename+"_Log_entropy_growth_linear_absolute_normalized.png")
+
+	print("Monthly entropy with exponential forgetting(k=1)")
+	dates=[]
+	complexities1=[]
+	complexities1_norm1=[]
+	complexities1_norm2=[]
+	complexities2=[]
+	complexities2_norm1=[]
+	complexities2_norm2=[]
+	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
+		dates.append(dt)
+		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
+		complexity1, complexity1_norm1, complexity1_norm2,complexity2, complexity2_norm1, complexity2_norm2 = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ), forgetting="exp")
+		print("Complexity1: "+str(complexity1))
+		print("Complexity1_norm1: "+str(complexity1_norm1))
+		print("Complexity1_norm2: "+str(complexity1_norm2))
+		complexities1.append(complexity1)
+		complexities1_norm1.append(complexity1_norm1)
+		complexities1_norm2.append(complexity1_norm2)
+		print("Complexity2: "+str(complexity2))
+		print("Complexity2_norm1: "+str(complexity2_norm1))
+		print("Complexity2_norm2: "+str(complexity2_norm2))
+		complexities2.append(complexity2)
+		complexities2_norm1.append(complexity2_norm1)
+		complexities2_norm2.append(complexity2_norm2)
+
+	df = pd.DataFrame()
+	df["Date"]=dates
+	df["Complexity1"]=complexities1
+	df["Complexity1_norm1"]=complexities1_norm1
+	df["Complexity1_norm2"]=complexities1_norm2
+	df["Complexity2"]=complexities2
+	df["Complexity2_norm1"]=complexities2_norm1
+	df["Complexity2_norm2"]=complexities2_norm2
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", "Complexity1")
+	plt.savefig(base_filename+"_Log_entropy_growth_exp_relative.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", ["Complexity1_norm1", "Complexity1_norm2"])
+	plt.savefig(base_filename+"_Log_entropy_growth_exp_relative_normalized.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", "Complexity2")
+	plt.savefig(base_filename+"_Log_entropy_growth_exp_absolute.png")
+	plt.figure(figsize=(1920,1080))
+	df.plot("Date", ["Complexity2_norm1", "Complexity2_norm2"])
+	plt.savefig(base_filename+"_Log_entropy_growth_exp_absolute_normalized.png")
 
 ###############
 
