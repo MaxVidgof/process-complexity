@@ -343,14 +343,21 @@ if(args.measures):
 	m_affinity=0
 	for v1 in aff:
 		for v2 in aff:
-			if(args.verbose):
-				 print(v1+"-"+v2)
-			overlap = (aff[v1][1] & aff[v2][1]).count_bits_sparse()
-			union = (aff[v1][1] | aff[v2][1]).count_bits_sparse()
-			if(args.verbose):
-				 print(str(overlap)+"/"+str(union))
-			m_affinity += (overlap/union)*aff[v1][0]*aff[v2][0]
-	m_affinity /= (sum([aff[v][0] for v in aff]))**2
+			if(v1!=v2):
+				if(args.verbose):
+					 print(v1+"-"+v2)
+				overlap = (aff[v1][1] & aff[v2][1]).count_bits_sparse()
+				union = (aff[v1][1] | aff[v2][1]).count_bits_sparse()
+				if(args.verbose):
+					 print(str(overlap)+"/"+str(union))
+				if(union==0 and overlap==0):
+					m_affinity += 0
+				else:
+					m_affinity += (overlap/union)*aff[v1][0]*aff[v2][0]
+			else:
+				#relative overlap = 1
+				m_affinity += aff[v1][0]*(aff[v1][0]-1)
+	m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
 	print("Affinity: "+str(m_affinity))
 	#commented out for a moment
 	#affinities = []
