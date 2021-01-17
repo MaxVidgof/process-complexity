@@ -269,12 +269,12 @@ if(args.dot):
 	print(pa.draw())
 
 if(args.graph):
-	my_spec=open('t.gv', 'w')
+	my_spec=open(base_filename+'.gv', 'w')
 	my_spec.write(pa.draw())
 	my_spec.close()
-	print("Saved DOT specification to t.gv")
-	subprocess.call(["dot", "-Tpng" if args.png else "-Tsvg", "t.gv", "-o", "t."+("png" if args.png else "svg")]) #-Tpng
-	print("Saved graph to t."+("png" if args.png else "svg"))
+	print("Saved DOT specification to"+base_filename+".gv")
+	subprocess.call(["dot", "-Tpng" if args.png else "-Tsvg", base_filename+".gv", "-o", base_filename+"."+("png" if args.png else "svg")]) #-Tpng
+	print("Saved graph to"+base_filename+"."+("png" if args.png else "svg"))
 
 times[3] = time.perf_counter()-s
 
