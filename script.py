@@ -23,14 +23,13 @@ parser.add_argument("-d", "--dot", dest="dot", help="create dot specs", default=
 parser.add_argument("-g", "--graph", dest="graph", help="draw a graph", default=False, action="store_true")
 parser.add_argument("-p", "--prefix", dest="prefix", help="output prefix for each state", default=False, action="store_true")
 parser.add_argument("-v", "--verbose", dest="verbose", help="verbose output", default=False, action="store_true")
-parser.add_argument("-m", "--measures", dest="measures", help="calculate other complexity measures", default=False, action="store_true")
+parser.add_argument("-m", "--measures", dest="measures", help="calculate other complexity measures", default=[], action="append", choices=["magnitude","support","variety","level_of_detail","time_granularity","structure","affinity","trace_length","distinct_traces","deviation_from_random","lempel-ziv","pentland","all"]) #store_true
 parser.add_argument("--hide-event", dest="subg", help="hide event nodes, keep only activity types", default=True, action="store_false")
 parser.add_argument("--png", dest="png", help="draw the graph in PNG (may fail if the graph is too big", default=False, action="store_true")
 parser.add_argument("-e", "--exponential-forgetting", dest="ex_k", help="coefficient for exponential forgetting", default=1)
 parser.add_argument("-t", dest="change", help="calculate complexity growth over time", default=False,action="store_true")
 
 args = parser.parse_args()
-
 times = [0] * 7
 
 #1 Define the event class with slots
@@ -284,81 +283,102 @@ s = time.perf_counter()
 #6. Calculate complexity measures
 #6.1. Log complexity metrics
 if(args.measures):
-	m_magnitude = len(log) # magnitude - number of events in a log
-	print("Magnitude: " + str(m_magnitude))
-	m_support = len(pm4py_log) # support - number of traces in a log
-	print("Support: " + str(m_support))
+	print("Selected measures: " + ",".join(args.measures))
 
-	event_classes = {}
-	for trace in pm4py_log:
-		event_classes[trace.attributes['concept:name']] = set()
-		for event in trace:
-			event_classes[trace.attributes['concept:name']].add(event['concept:name'])
-	m_variety = len(set.union(*[event_classes[case_id] for case_id in event_classes]))
-	print("Variety: " + str(m_variety))
-	m_lod = statistics.mean([len(event_classes[case_id]) for case_id in event_classes])
-	print("Level of detail: " + str(m_lod))
+	def check_measure(*measures):
+		return any(element in args.measures for element in measures)
 
-	time_granularities = {}
-	for event in log:
-		if event.predecessor:
-			d = (event.timestamp - event.predecessor.timestamp).total_seconds()
-			if event.case_id not in time_granularities or d < time_granularities[event.case_id]:
-				time_granularities[event.case_id] = d
-				if(args.verbose):
-					print("Updating time granularity for trace " + str(event.case_id) + ": " + str(d) + " seconds. Event " + str(event.activity) + " (" + str(event.event_id) + ")")
-	m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
-	print("Time granularity: " + str(m_time_granularity) + " (seconds)")
+	if check_measure("magnitude","all"):
+		m_magnitude = len(log) # magnitude - number of events in a log
+		print("Magnitude: " + str(m_magnitude))
+	if check_measure("support","distinct_traces","all"):
+		m_support = len(pm4py_log) # support - number of traces in a log
+		print("Support: " + str(m_support))
 
-	from pm4py.algo.filtering.log.variants import variants_filter
-	var = variants_filter.get_variants(pm4py_log)
+	if check_measure("deviation_from_random","variety","level_of_detail","affinity","structure","all"):
+		event_classes = {}
+		for trace in pm4py_log:
+			event_classes[trace.attributes['concept:name']] = set()
+			for event in trace:
+				event_classes[trace.attributes['concept:name']].add(event['concept:name'])
 
-	if(args.verbose):
-		 print("Calculating affinity")
-	hashmap = {}
-	evts = list(set.union(*[event_classes[case_id] for case_id in event_classes]))
-	num_act = len(evts)
-	i=0
-	for event in evts:
-		for event_follows in evts:
-			hashmap[(event, event_follows)]=i
-			i += 1
-	aff = {}
-	for variant in var.keys():
-		aff[variant] = [0,0]
-		aff[variant][0] = len(var[variant])
-		aff[variant][1] = BitVector(size=num_act**2)
-		for i in range(1, len(var[variant][0])):
-			aff[variant][1][hashmap[(var[variant][0][i-1]['concept:name'], var[variant][0][i]['concept:name'])]] = 1
+	if check_measure("variety","deviation_from_random","structure","all"):
+		m_variety = len(set.union(*[event_classes[case_id] for case_id in event_classes]))
+		print("Variety: " + str(m_variety))
+	if check_measure("level_of_detail","all"):
+		m_lod = statistics.mean([len(event_classes[case_id]) for case_id in event_classes])
+		print("Level of detail: " + str(m_lod))
 
-	m_structure = 1 - (((functools.reduce(lambda a,b: a | b, [bv[1] for bv in aff.values()])).count_bits_sparse())/(m_variety**2))
-	print("Structure: " + str(m_structure))
+	if check_measure("time_granularity","all"):
+		time_granularities = {}
+		for event in log:
+			if event.predecessor:
+				d = (event.timestamp - event.predecessor.timestamp).total_seconds()
+				if event.case_id not in time_granularities or d < time_granularities[event.case_id]:
+					time_granularities[event.case_id] = d
+					if(args.verbose):
+						print("Updating time granularity for trace " + str(event.case_id) + ": " + str(d) + " seconds. Event " + str(event.activity) + " (" + str(event.event_id) + ")")
+		m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
+		print("Time granularity: " + str(m_time_granularity) + " (seconds)")
 
-	m_affinity=0
-	for v1 in aff:
-		for v2 in aff:
-			if(v1!=v2):
-				if(args.verbose):
-					 print(v1+"-"+v2)
-				overlap = (aff[v1][1] & aff[v2][1]).count_bits_sparse()
-				union = (aff[v1][1] | aff[v2][1]).count_bits_sparse()
-				if(args.verbose):
-					 print(str(overlap)+"/"+str(union))
-				if(union==0 and overlap==0):
-					m_affinity += 0
+	if check_measure("affinity","structure","distinct_traces","all"):
+
+		from pm4py.algo.filtering.log.variants import variants_filter
+		var = variants_filter.get_variants(pm4py_log)
+
+	if check_measure("affinity","structure","all"):
+		hashmap = {}
+		evts = list(set.union(*[event_classes[case_id] for case_id in event_classes]))
+		num_act = len(evts)
+		i=0
+		for event in evts:
+			for event_follows in evts:
+				hashmap[(event, event_follows)]=i
+				i += 1
+		aff = {}
+		for variant in var.keys():
+			aff[variant] = [0,0]
+			aff[variant][0] = len(var[variant])
+			aff[variant][1] = BitVector(size=num_act**2)
+			for i in range(1, len(var[variant][0])):
+				aff[variant][1][hashmap[(var[variant][0][i-1]['concept:name'], var[variant][0][i]['concept:name'])]] = 1
+
+	if check_measure("structure","all"):
+		m_structure = 1 - (((functools.reduce(lambda a,b: a | b, [bv[1] for bv in aff.values()])).count_bits_sparse())/(m_variety**2))
+		print("Structure: " + str(m_structure))
+
+	if check_measure("affinity","all"):
+
+		m_affinity=0
+		for v1 in aff:
+			for v2 in aff:
+				if(v1!=v2):
+					if(args.verbose):
+						print(v1+"-"+v2)
+					overlap = (aff[v1][1] & aff[v2][1]).count_bits_sparse()
+					union = (aff[v1][1] | aff[v2][1]).count_bits_sparse()
+					if(args.verbose):
+						 print(str(overlap)+"/"+str(union))
+					if(union==0 and overlap==0):
+						m_affinity += 0
+					else:
+						m_affinity += (overlap/union)*aff[v1][0]*aff[v2][0]
 				else:
-					m_affinity += (overlap/union)*aff[v1][0]*aff[v2][0]
-			else:
-				#relative overlap = 1
-				m_affinity += aff[v1][0]*(aff[v1][0]-1)
-	m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
-	print("Affinity: "+str(m_affinity))
-	m_trace_length = {}
-	m_trace_length["min"] = min([len(trace) for trace in pm4py_log])
-	m_trace_length["avg"] = statistics.mean([len(trace) for trace in pm4py_log])
-	m_trace_length["max"] = max([len(trace) for trace in pm4py_log])
-	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
-	print("Distinct traces: " + str((len(var)/m_support)*100) + "%")
+					#relative overlap = 1
+					m_affinity += aff[v1][0]*(aff[v1][0]-1)
+		m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
+		print("Affinity: "+str(m_affinity))
+
+	if check_measure("trace_length","all"):
+		m_trace_length = {}
+		m_trace_length["min"] = min([len(trace) for trace in pm4py_log])
+		m_trace_length["avg"] = statistics.mean([len(trace) for trace in pm4py_log])
+		m_trace_length["max"] = max([len(trace) for trace in pm4py_log])
+		print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
+
+	if check_measure("distinct_traces","all"):
+		print("Distinct traces: " + str((len(var)/m_support)*100) + "%")
+
 	#Pentland's Process Complexity
 	#Calculated as number of variants - variants that include loops
 	#m_simple_paths = pa.c #all paths
@@ -368,37 +388,40 @@ if(args.measures):
 	#		if len(p.split(",")) > len(set(p.split(","))):
 	#			m_simple_paths -= 1
 	#print("?Number of simple paths: " + str(m_simple_paths)) #remove this method as it refers to process _model_ not _log_
-	action_network = []
-	for i in range (m_variety):
-		action_network.append([])
-		for j in range(m_variety):
-			action_network[i].append(0)
-	evt_lexicon = set.union(*[event_classes[case_id] for case_id in event_classes])
-	evt_lexicon = list(evt_lexicon)
-	n_transitions = 0
-	for event in log:
-		if event.predecessor:
-			action_network[evt_lexicon.index(event.predecessor.activity)][evt_lexicon.index(event.activity)] += 1
-			n_transitions +=1
-	m_dev_from_rand = 0
-	a_mean = n_transitions/(m_variety**2)
-	for i in range(len(action_network)):
-		for j in range(len(action_network[i])):
-			m_dev_from_rand += ((action_network[i][j]-a_mean)/n_transitions)**2
-	m_dev_from_rand = math.sqrt(m_dev_from_rand)
-	m_dev_from_rand = 1 - m_dev_from_rand
-	print("Deviation from random: " + str(m_dev_from_rand))
+
+	if check_measure("deviation_from_random","all"):
+		action_network = []
+		for i in range (m_variety):
+			action_network.append([])
+			for j in range(m_variety):
+				action_network[i].append(0)
+		evt_lexicon = set.union(*[event_classes[case_id] for case_id in event_classes])
+		evt_lexicon = list(evt_lexicon)
+		n_transitions = 0
+		for event in log:
+			if event.predecessor:
+				action_network[evt_lexicon.index(event.predecessor.activity)][evt_lexicon.index(event.activity)] += 1
+				n_transitions +=1
+		m_dev_from_rand = 0
+		a_mean = n_transitions/(m_variety**2)
+		for i in range(len(action_network)):
+			for j in range(len(action_network[i])):
+				m_dev_from_rand += ((action_network[i][j]-a_mean)/n_transitions)**2
+		m_dev_from_rand = math.sqrt(m_dev_from_rand)
+		m_dev_from_rand = 1 - m_dev_from_rand
+		print("Deviation from random: " + str(m_dev_from_rand))
 	#print("L-Z dec: " + ";".join(lempel_ziv_decomposition("".join([event.activity for event in log]))))
-	m_l_z = lempel_ziv_complexity(tuple([event.activity for event in log]))
-	print("Lempel-Ziv complexity: " + str(m_l_z))
+	if check_measure("lempel-ziv","all"):
+		m_l_z = lempel_ziv_complexity(tuple([event.activity for event in log]))
+		print("Lempel-Ziv complexity: " + str(m_l_z))
 	# Haerem and Pentland task complexity
-	#TODO: of which task???
+	if check_measure("pentland","all"):
 	# root node as 0th task in all variants,
-	m_pentland_task = 0
-	for n in pa.nodes:
-		if len(n.successors)==0:
-			m_pentland_task += n.j
-	print("Pentland's Task complexity: "+str(m_pentland_task))
+		m_pentland_task = 0
+		for n in pa.nodes:
+			if len(n.successors)==0:
+				m_pentland_task += n.j
+		print("Pentland's Task complexity: "+str(m_pentland_task))
 
 times[4] = time.perf_counter()-s
 #6.2. Calculate the graph complexity measure
