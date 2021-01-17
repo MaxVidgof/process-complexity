@@ -14,6 +14,7 @@ from lempel_ziv_complexity import lempel_ziv_complexity, lempel_ziv_decompositio
 import time
 from BitVector import BitVector
 import matplotlib.pyplot as plt
+import functools
 
 #0. Read the command line arguments
 parser = ArgumentParser()
@@ -108,7 +109,7 @@ else:
 log = []
 for trace in pm4py_log:
 	for event in trace:
-		log.append(Event(trace.attributes['concept:name'], event['concept:name'].strip().replace(" ", "_"), event['time:timestamp']))
+		log.append(Event(trace.attributes['concept:name'], event['concept:name'], event['time:timestamp']))
 
 
 log.sort(key = lambda event: event.timestamp)
@@ -289,17 +290,10 @@ if(args.measures):
 	print("Support: " + str(m_support))
 
 	event_classes = {}
-	df_relations = {}
-	trace_lengths = {}
-	for case_id in last_event.keys():
-		event_classes[case_id] = set()
-		df_relations[case_id] = set()
-		trace_lengths[case_id] = 0
-	for event in log:
-		event_classes[event.case_id].add(event.activity)
-		if event.predecessor:
-			df_relations[event.case_id].add((event.predecessor.activity, event.activity))
-		trace_lengths[event.case_id] += 1
+	for trace in pm4py_log:
+		event_classes[trace.attributes['concept:name']] = set()
+		for event in trace:
+			event_classes[trace.attributes['concept:name']].add(event['concept:name'])
 	m_variety = len(set.union(*[event_classes[case_id] for case_id in event_classes]))
 	print("Variety: " + str(m_variety))
 	m_lod = statistics.mean([len(event_classes[case_id]) for case_id in event_classes])
@@ -315,17 +309,14 @@ if(args.measures):
 					print("Updating time granularity for trace " + str(event.case_id) + ": " + str(d) + " seconds. Event " + str(event.activity) + " (" + str(event.event_id) + ")")
 	m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
 	print("Time granularity: " + str(m_time_granularity) + " (seconds)")
-	m_structure = 1 - ((len(set.union(*[df_relations[case_id] for case_id in df_relations])))/(m_variety**2))
-	print("Structure: " + str(m_structure))
 
 	from pm4py.algo.filtering.log.variants import variants_filter
 	var = variants_filter.get_variants(pm4py_log)
 
-	#Jan's bit vectors
 	if(args.verbose):
 		 print("Calculating affinity")
 	hashmap = {}
-	evts = set([evt['concept:name'] for trace in pm4py_log for evt in trace])
+	evts = list(set.union(*[event_classes[case_id] for case_id in event_classes]))
 	num_act = len(evts)
 	i=0
 	for event in evts:
@@ -339,6 +330,9 @@ if(args.measures):
 		aff[variant][1] = BitVector(size=num_act**2)
 		for i in range(1, len(var[variant][0])):
 			aff[variant][1][hashmap[(var[variant][0][i-1]['concept:name'], var[variant][0][i]['concept:name'])]] = 1
+
+	m_structure = 1 - (((functools.reduce(lambda a,b: a | b, [bv[1] for bv in aff.values()])).count_bits_sparse())/(m_variety**2))
+	print("Structure: " + str(m_structure))
 
 	m_affinity=0
 	for v1 in aff:
@@ -359,25 +353,11 @@ if(args.measures):
 				m_affinity += aff[v1][0]*(aff[v1][0]-1)
 	m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
 	print("Affinity: "+str(m_affinity))
-	#commented out for a moment
-	#affinities = []
-	#for case_id_1 in df_relations:
-	#	for case_id_2 in df_relations:
-	#		if case_id_1 != case_id_2:
-	#			# note that affinities are only calculated for distinct traces
-	#			# also note that affinity is calculated twice for each pair of traces, e.g. (1,2) and (2,1),
-	#			# this does not affect the result but does double the calculation time
-	#			# however, it prevents possible errors when comparing event IDs that are strungs
-	#			affinity = len(set.intersection(df_relations[case_id_1], df_relations[case_id_2]))/len(set.union(df_relations[case_id_1], df_relations[case_id_2]))
-	#			affinities.append(affinity)
-	#m_affinity = statistics.mean(affinities)
-	#print("Affinity: " + str(m_affinity))
 	m_trace_length = {}
-	m_trace_length["min"] = min([trace_lengths[case_id] for case_id in trace_lengths])
-	m_trace_length["avg"] = statistics.mean([trace_lengths[case_id] for case_id in trace_lengths])
-	m_trace_length["max"] = max([trace_lengths[case_id] for case_id in trace_lengths])
+	m_trace_length["min"] = min([len(trace) for trace in pm4py_log])
+	m_trace_length["avg"] = statistics.mean([len(trace) for trace in pm4py_log])
+	m_trace_length["max"] = max([len(trace) for trace in pm4py_log])
 	print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
-	#print("Here: "+str(pa.c/m_support==len(var)/len(pm4py_log)))
 	print("Distinct traces: " + str((len(var)/m_support)*100) + "%")
 	#Pentland's Process Complexity
 	#Calculated as number of variants - variants that include loops
