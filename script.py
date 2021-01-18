@@ -30,7 +30,7 @@ parser.add_argument("-e", "--exponential-forgetting", dest="ex_k", help="coeffic
 parser.add_argument("-t", dest="change", help="calculate complexity growth over time", default=False,action="store_true")
 
 args = parser.parse_args()
-times = [0] * 7
+times = {}
 
 #1 Define the event class with slots
 
@@ -52,7 +52,6 @@ class Event:
 #TODO:
 #Text wrap for event nodes
 #Automatically set font size
-s = time.perf_counter() # start reading the log
 if args.file==None:
 	raise Exception("No file specified")
 
@@ -113,8 +112,6 @@ for trace in pm4py_log:
 
 log.sort(key = lambda event: event.timestamp)
 
-times[0] = time.perf_counter()-s
-
 #2.1 Define the time span
 timespan = (log[-1].timestamp - log[0].timestamp).total_seconds()
 last_timestamp=log[-1].timestamp
@@ -135,7 +132,7 @@ if(args.verbose):
 	for event in log:
 		print(",".join([str(event.case_id), event.activity, str(event.timestamp), (event.predecessor.activity + "-" + str(event.predecessor.event_id) if event.predecessor else "-"), str(event.event_id)]))
 
-times[1] = time.perf_counter()-s
+times['Defining predecessors'] = time.perf_counter()-s
 
 #4. Define the classes for the prefix automaton
 
@@ -260,23 +257,22 @@ for event in log:
 
 	last_at[event.case_id] = current_activity_type
 
-times[2] = time.perf_counter()-s
+times["Building prefix automaton"] = time.perf_counter()-s
 
-s = time.perf_counter()
 
 if(args.dot):
 	print("DOT specification:")
 	print(pa.draw())
 
 if(args.graph):
+	s = time.perf_counter()
 	my_spec=open(base_filename+'.gv', 'w')
 	my_spec.write(pa.draw())
 	my_spec.close()
 	print("Saved DOT specification to"+base_filename+".gv")
 	subprocess.call(["dot", "-Tpng" if args.png else "-Tsvg", base_filename+".gv", "-o", base_filename+"."+("png" if args.png else "svg")]) #-Tpng
 	print("Saved graph to"+base_filename+"."+("png" if args.png else "svg"))
-
-times[3] = time.perf_counter()-s
+	times["Drawing the graph"] = time.perf_counter()-s
 
 s = time.perf_counter()
 
@@ -423,7 +419,7 @@ if(args.measures):
 				m_pentland_task += n.j
 		print("Pentland's Task complexity: "+str(m_pentland_task))
 
-times[4] = time.perf_counter()-s
+times["Calculating log complexity measures"] = time.perf_counter()-s
 #6.2. Calculate the graph complexity measure
 print("---Entropy measures---")
 
@@ -440,9 +436,9 @@ def graph_complexity(pa):
 # graph entropy
 s = time.perf_counter()
 var_ent = graph_complexity(pa)
+times["Calculating variant entropy"] = time.perf_counter()-s
 print("Variant entropy: "+str(var_ent[0]))
 print("Normalized variant entropy: "+str(var_ent[1]))
-times[5] = time.perf_counter()-s
 
 def log_complexity(pa, forgetting = None, k=1):
 	normalize = len(log)*math.log(len(log))
@@ -503,24 +499,26 @@ def log_complexity(pa, forgetting = None, k=1):
 s = time.perf_counter()
 
 seq_ent = log_complexity(pa)
-
+times["Calculating sequence entropy"] = time.perf_counter()-s
 print("Sequence entropy: "+str(seq_ent[0]))
 print("Normalized equence entropy: "+str(seq_ent[1]))
 
+s = time.perf_counter()
 seq_ent_lin = log_complexity(pa, "linear")
+times["Calculating sequence entropy with linear forgetting"] = time.perf_counter()-s
 
 print("Sequence entropy with linear forgetting: "+str(seq_ent_lin[0]))
 print("Normalized sequence entropy with linear forgetting: "+str(seq_ent_lin[1]))
 
+s = time.perf_counter()
 seq_ent_exp = log_complexity(pa, "exp",float(args.ex_k))
-#print("log complexity with exponential forgetting (k=1): "+str(log_complexity(pa, "exp")))
+times["Calculating sequence entropy with exponential forgetting"] = time.perf_counter()-s
+
 print("Sequence entropy with exponential forgetting (k="+str(args.ex_k)+"): "+str(seq_ent_exp[0]))
 print("Normalized sequence entropy with exponential forgetting (k="+str(args.ex_k)+"): "+str(seq_ent_exp[1]))
 
-times[6] = time.perf_counter()-s
 #6.3
 if(args.change):
-	# TODO calculate monthly 
 	# Variant II - gradually increasing complexity
 	def monthly_complexity(pa, end):
 		active_nodes = [node for node in pa.nodes if node != pa.root and len([event for event in node.sequence if event.timestamp <= (end+event.timestamp.utcoffset()).replace(tzinfo=event.timestamp.tzinfo)])>0] #note: comparing UTC timestamps
@@ -539,6 +537,9 @@ if(args.change):
 	complexities=[]
 	complexities_norm1=[]
 	complexities_norm2=[]
+
+	s = time.perf_counter()
+
 	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
 	#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
 		dates.append(dt)
@@ -551,6 +552,7 @@ if(args.change):
 		complexities_norm1.append(complexity_norm1)
 		complexities_norm2.append(complexity_norm2)
 
+	times["Calculating monthly variant entropy"] = time.perf_counter()-s
 
 	df = pd.DataFrame()
 	df["Date"]=dates
@@ -652,6 +654,9 @@ if(args.change):
 	complexities=[]
 	complexities_norm1=[]
 	complexities_norm2=[]
+
+	s = time.perf_counter()
+
 	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
 	#	log_rule = list(filter(lambda event: event.timestamp.year==dt.year and event.timestamp.month==dt.month, log))
 		dates.append(dt)
@@ -663,6 +668,8 @@ if(args.change):
 		complexities.append(complexity)
 		complexities_norm1.append(complexity_norm1)
 		complexities_norm2.append(complexity_norm2)
+
+	times["Calculating monthly sequence entropy"] = time.perf_counter()-s
 
 	df = pd.DataFrame()
 	df["Date"]=dates
@@ -684,6 +691,9 @@ if(args.change):
 	complexities2=[]
 	complexities2_norm1=[]
 	complexities2_norm2=[]
+
+	s = time.perf_counter()
+
 	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
 		dates.append(dt)
 		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
@@ -700,6 +710,8 @@ if(args.change):
 		complexities2.append(complexity2)
 		complexities2_norm1.append(complexity2_norm1)
 		complexities2_norm2.append(complexity2_norm2)
+
+	times["Calculating monthly sequence entropy with linear forgetting"] = time.perf_counter()-s
 
 	df = pd.DataFrame()
 	df["Date"]=dates
@@ -730,6 +742,9 @@ if(args.change):
 	complexities2=[]
 	complexities2_norm1=[]
 	complexities2_norm2=[]
+
+	s = time.perf_counter()
+
 	for dt in rrule.rrule(rrule.MONTHLY, dtstart=log[0].timestamp, until=log[-1].timestamp+relativedelta(months=1)):
 		dates.append(dt)
 		print(str(calendar.month_name[dt.month])+" "+str(dt.year))
@@ -746,6 +761,8 @@ if(args.change):
 		complexities2.append(complexity2)
 		complexities2_norm1.append(complexity2_norm1)
 		complexities2_norm2.append(complexity2_norm2)
+
+	times["Calculating monthly sequence entropy with exponential forgetting"] = time.perf_counter()-s
 
 	df = pd.DataFrame()
 	df["Date"]=dates
@@ -778,11 +795,7 @@ if(args.prefix):
 			print ("s"+"^"+str(node.c)+"_"+str(node.j) + ":" + node.getPrefix())
 
 print("Time measurements:")
-print("Reading log: "+str(times[0])+" seconds")
-print("Defining predecessors: "+str(times[1])+" seconds")
-print("Building prefix automaton: "+str(times[2])+" seconds")
-print("Drawing the graph: "+str(times[3])+" seconds")
-print("Calculating log complexity measures: "+str(times[4])+" seconds")
-print("Calculating graph entropy: "+str(times[5])+" seconds")
-print("Calculating sequence complexity: "+str(times[6])+" seconds")
+for k,v in times.items():
+	print(k+": "+str(v)+" seconds")
 
+print("Total: "+str(sum(times.values())))
