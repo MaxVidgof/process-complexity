@@ -31,6 +31,7 @@ parser.add_argument("-t", dest="change", help="calculate complexity growth over 
 
 args = parser.parse_args()
 times = {}
+measure_times = {}
 
 #1 Define the event class with slots
 
@@ -284,27 +285,40 @@ if(args.measures):
 	def check_measure(*measures):
 		return any(element in args.measures for element in measures)
 
+	m = time.perf_counter()
 	if check_measure("magnitude","all"):
 		m_magnitude = len(log) # magnitude - number of events in a log
+		measure_times['Magnitude'] = time.perf_counter()-m
 		print("Magnitude: " + str(m_magnitude))
+
+	m = time.perf_counter()
 	if check_measure("support","distinct_traces","all"):
 		m_support = len(pm4py_log) # support - number of traces in a log
+		measure_times['Support'] = time.perf_counter()-m
 		print("Support: " + str(m_support))
 
+	m = time.perf_counter()
 	if check_measure("deviation_from_random","variety","level_of_detail","affinity","structure","all"):
 		event_classes = {}
 		for trace in pm4py_log:
 			event_classes[trace.attributes['concept:name']] = set()
 			for event in trace:
 				event_classes[trace.attributes['concept:name']].add(event['concept:name'])
+		measure_times['event_classes'] = time.perf_counter()-m
 
+	m = time.perf_counter()
 	if check_measure("variety","deviation_from_random","structure","all"):
 		m_variety = len(set.union(*[event_classes[case_id] for case_id in event_classes]))
+		measure_times['Variety'] = time.perf_counter()-m+measure_times['event_classes']
 		print("Variety: " + str(m_variety))
+
+	m = time.perf_counter()
 	if check_measure("level_of_detail","all"):
 		m_lod = statistics.mean([len(event_classes[case_id]) for case_id in event_classes])
+		measure_times['Level of detail'] = time.perf_counter()-m+measure_times['event_classes']
 		print("Level of detail: " + str(m_lod))
 
+	m = time.perf_counter()
 	if check_measure("time_granularity","all"):
 		time_granularities = {}
 		for event in log:
@@ -315,13 +329,16 @@ if(args.measures):
 					if(args.verbose):
 						print("Updating time granularity for trace " + str(event.case_id) + ": " + str(d) + " seconds. Event " + str(event.activity) + " (" + str(event.event_id) + ")")
 		m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
+		measure_times['Time granularity'] = time.perf_counter()-m
 		print("Time granularity: " + str(m_time_granularity) + " (seconds)")
 
+	m = time.perf_counter()
 	if check_measure("affinity","structure","distinct_traces","all"):
-
 		from pm4py.algo.filtering.log.variants import variants_filter
 		var = variants_filter.get_variants(pm4py_log)
+		measure_times['var'] = time.perf_counter()-m
 
+	m = time.perf_counter()
 	if check_measure("affinity","structure","all"):
 		hashmap = {}
 		evts = list(set.union(*[event_classes[case_id] for case_id in event_classes]))
@@ -338,11 +355,15 @@ if(args.measures):
 			aff[variant][1] = BitVector(size=num_act**2)
 			for i in range(1, len(var[variant][0])):
 				aff[variant][1][hashmap[(var[variant][0][i-1]['concept:name'], var[variant][0][i]['concept:name'])]] = 1
+		measure_times['hashmap'] = time.perf_counter()-m
 
+	m = time.perf_counter()
 	if check_measure("structure","all"):
 		m_structure = 1 - (((functools.reduce(lambda a,b: a | b, [bv[1] for bv in aff.values()])).count_bits_sparse())/(m_variety**2))
+		measure_times['Structure'] = time.perf_counter()-m+measure_times['event_classes']+measure_times['Variety']+measure_times['var']+measure_times['hashmap']
 		print("Structure: " + str(m_structure))
 
+	m = time.perf_counter()
 	if check_measure("affinity","all"):
 
 		m_affinity=0
@@ -363,17 +384,23 @@ if(args.measures):
 					#relative overlap = 1
 					m_affinity += aff[v1][0]*(aff[v1][0]-1)
 		m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
+		measure_times['Affinity'] = time.perf_counter()-m+measure_times['event_classes']+measure_times['var']+measure_times['hashmap']
 		print("Affinity: "+str(m_affinity))
 
+	m = time.perf_counter()
 	if check_measure("trace_length","all"):
 		m_trace_length = {}
 		m_trace_length["min"] = min([len(trace) for trace in pm4py_log])
 		m_trace_length["avg"] = statistics.mean([len(trace) for trace in pm4py_log])
 		m_trace_length["max"] = max([len(trace) for trace in pm4py_log])
+		measure_times['Trace length'] = time.perf_counter()-m
 		print("Trace length: " + "/".join([str(m_trace_length[key]) for key in ["min", "avg", "max"]])  + " (min/avg/max)")
 
+	m = time.perf_counter()
 	if check_measure("distinct_traces","all"):
-		print("Distinct traces: " + str((len(var)/m_support)*100) + "%")
+		m_distinct_traces =  (len(var)/m_support)*100
+		measure_times['Distinct traces'] = time.perf_counter() - m + measure_times['Support']+measure_times['var']
+		print("Distinct traces: " + str(m_distinct_traces) + "%")
 
 	#Pentland's Process Complexity
 	#Calculated as number of variants - variants that include loops
@@ -385,6 +412,7 @@ if(args.measures):
 	#			m_simple_paths -= 1
 	#print("?Number of simple paths: " + str(m_simple_paths)) #remove this method as it refers to process _model_ not _log_
 
+	m = time.perf_counter()
 	if check_measure("deviation_from_random","all"):
 		action_network = []
 		for i in range (m_variety):
@@ -405,11 +433,17 @@ if(args.measures):
 				m_dev_from_rand += ((action_network[i][j]-a_mean)/n_transitions)**2
 		m_dev_from_rand = math.sqrt(m_dev_from_rand)
 		m_dev_from_rand = 1 - m_dev_from_rand
+		measure_times['Deviation from random'] = time.perf_counter()-m+measure_times['event_classes']+measure_times['Variety']
 		print("Deviation from random: " + str(m_dev_from_rand))
+
 	#print("L-Z dec: " + ";".join(lempel_ziv_decomposition("".join([event.activity for event in log]))))
+	m = time.perf_counter()
 	if check_measure("lempel-ziv","all"):
 		m_l_z = lempel_ziv_complexity(tuple([event.activity for event in log]))
+		measure_times['Lempel-Ziv complexity'] = time.perf_counter()-m
 		print("Lempel-Ziv complexity: " + str(m_l_z))
+
+	m = time.perf_counter()
 	# Haerem and Pentland task complexity
 	if check_measure("pentland","all"):
 	# root node as 0th task in all variants,
@@ -417,9 +451,10 @@ if(args.measures):
 		for n in pa.nodes:
 			if len(n.successors)==0:
 				m_pentland_task += n.j
+		measure_times["Pentland's task complexity"] = time.perf_counter()-m
 		print("Pentland's Task complexity: "+str(m_pentland_task))
 
-times["Calculating log complexity measures"] = time.perf_counter()-s
+	times["Calculating log complexity measures"] = time.perf_counter()-s
 #6.2. Calculate the graph complexity measure
 print("---Entropy measures---")
 
@@ -796,6 +831,10 @@ if(args.prefix):
 
 print("Time measurements:")
 for k,v in times.items():
+	if(k=="Calculating log complexity measures"):
+		for p,m in measure_times.items():
+			if p not in ["event_classes", "hashmap", "var"]:
+				print(p+": "+str(m)+" seconds")
 	print(k+": "+str(v)+" seconds")
 
 print("Total: "+str(sum(times.values())))
