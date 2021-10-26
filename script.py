@@ -270,9 +270,9 @@ if(args.graph):
 	my_spec=open(base_filename+'.gv', 'w')
 	my_spec.write(pa.draw())
 	my_spec.close()
-	print("Saved DOT specification to"+base_filename+".gv")
+	print("Saved DOT specification to "+base_filename+".gv")
 	subprocess.call(["dot", "-Tpng" if args.png else "-Tsvg", base_filename+".gv", "-o", base_filename+"."+("png" if args.png else "svg")]) #-Tpng
-	print("Saved graph to"+base_filename+"."+("png" if args.png else "svg"))
+	print("Saved graph to "+base_filename+"."+("png" if args.png else "svg"))
 	times["Drawing the graph"] = time.perf_counter()-s
 
 s = time.perf_counter()
@@ -591,14 +591,14 @@ if(args.change):
 
 	df = pd.DataFrame()
 	df["Date"]=dates
-	df["Complexity"]=complexities
-	df["Complexity_norm1"]=complexities_norm1
-	df["Complexity_norm2"]=complexities_norm2
+	df["Variant entropy"]=complexities
+	df["Variant entropy(Active)"]=complexities_norm1
+	df["Variant entropy(All)"]=complexities_norm2
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", "Complexity")
+	df.plot("Date", "Variant entropy")
 	plt.savefig(base_filename+"_Entropy_growth.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", ["Complexity_norm1", "Complexity_norm2"])
+	df.plot("Date", ["Variant entropy(Active)", "Variant entropy(All)"])
 	plt.savefig(base_filename+"_Entropy_growth_normalized.png")
 
 	#print(pa.nodes[2].sequence[0].timestamp)
@@ -708,14 +708,14 @@ if(args.change):
 
 	df = pd.DataFrame()
 	df["Date"]=dates
-	df["Complexity"]=complexities
-	df["Complexity_norm1"]=complexities_norm1
-	df["Complexity_norm2"]=complexities_norm2
+	df["Sequence entropy"]=complexities
+	df["Sequence entropy(Active)"]=complexities_norm1
+	df["Sequence entropy(All)"]=complexities_norm2
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", "Complexity")
+	df.plot("Date", "Sequence entropy")
 	plt.savefig(base_filename+"_Log_entropy_growth.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", ["Complexity_norm1", "Complexity_norm2"])
+	df.plot("Date", ["Sequence entropy(Active)", "Sequence entropy(All)"])
 	plt.savefig(base_filename+"_Log_entropy_growth_normalized.png")
 
 	print("Monthly entropy with linear forgetting")
@@ -750,23 +750,23 @@ if(args.change):
 
 	df = pd.DataFrame()
 	df["Date"]=dates
-	df["Complexity1"]=complexities1
-	df["Complexity1_norm1"]=complexities1_norm1
-	df["Complexity1_norm2"]=complexities1_norm2
-	df["Complexity2"]=complexities2
-	df["Complexity2_norm1"]=complexities2_norm1
-	df["Complexity2_norm2"]=complexities2_norm2
+	df["Sequence entropy(Rel)"]=complexities1
+	df["Sequence entropy(Rel,Active)"]=complexities1_norm1
+	df["Sequence entropy(Rel,All)"]=complexities1_norm2
+	df["Sequence entropy(Abs)"]=complexities2
+	df["Sequence entropy(Abs,Active)"]=complexities2_norm1
+	df["Sequence entropy(Abs,All)"]=complexities2_norm2
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", "Complexity1")
+	df.plot("Date", "Sequence entropy(Rel)")
 	plt.savefig(base_filename+"_Log_entropy_growth_linear_relative.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", ["Complexity1_norm1", "Complexity1_norm2"])
+	df.plot("Date", ["Sequence entropy(Rel,Active)", "Sequence entropy(Rel,All)"])
 	plt.savefig(base_filename+"_Log_entropy_growth_linear_relative_normalized.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", "Complexity2")
+	df.plot("Date", "Sequence entropy(Abs)")
 	plt.savefig(base_filename+"_Log_entropy_growth_linear_absolute.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", ["Complexity2_norm1", "Complexity2_norm2"])
+	df.plot("Date", ["Sequence entropy(Abs,Active)", "Sequence entropy(Abs,All)"])
 	plt.savefig(base_filename+"_Log_entropy_growth_linear_absolute_normalized.png")
 
 	print("Monthly entropy with exponential forgetting(k=1)")
@@ -801,23 +801,23 @@ if(args.change):
 
 	df = pd.DataFrame()
 	df["Date"]=dates
-	df["Complexity1"]=complexities1
-	df["Complexity1_norm1"]=complexities1_norm1
-	df["Complexity1_norm2"]=complexities1_norm2
-	df["Complexity2"]=complexities2
-	df["Complexity2_norm1"]=complexities2_norm1
-	df["Complexity2_norm2"]=complexities2_norm2
+	df["Sequence entropy(Rel)"]=complexities1
+	df["Sequence entropy(Rel,Active)"]=complexities1_norm1
+	df["Sequence entropy(Rel,All)"]=complexities1_norm2
+	df["Sequence entropy(Abs)"]=complexities2
+	df["Sequence entropy(Abs,Active)"]=complexities2_norm1
+	df["Sequence entropy(Abs,All)"]=complexities2_norm2
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", "Complexity1")
+	df.plot("Date", "Sequence entropy(Rel)")
 	plt.savefig(base_filename+"_Log_entropy_growth_exp_relative.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", ["Complexity1_norm1", "Complexity1_norm2"])
+	df.plot("Date", ["Sequence entropy(Rel,Active)", "Sequence entropy(Rel,All)"])
 	plt.savefig(base_filename+"_Log_entropy_growth_exp_relative_normalized.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", "Complexity2")
+	df.plot("Date", "Sequence entropy(Abs)")
 	plt.savefig(base_filename+"_Log_entropy_growth_exp_absolute.png")
 	plt.figure(figsize=(1920,1080))
-	df.plot("Date", ["Complexity2_norm1", "Complexity2_norm2"])
+	df.plot("Date", ["Sequence entropy(Abs,Active)", "Sequence entropy(Abs,All)"])
 	plt.savefig(base_filename+"_Log_entropy_growth_exp_absolute_normalized.png")
 
 ###############
