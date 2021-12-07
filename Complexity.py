@@ -206,6 +206,8 @@ def flatten(in_list):
 
 # Build the EPA
 def build_graph(log, verbose=False):
+	if len(log)==0:
+		raise Exception("Cannot build EPA from an empty log")
 	if(verbose):
 		print("Building the prefix automaton...")
 
