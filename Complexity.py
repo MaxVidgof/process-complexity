@@ -716,7 +716,7 @@ def monthly_log_complexity(pa, end, forgetting=None, k=1):
 	else:
 		return None
 
-def calculate_sequence_entropy(pa, start_timestamp, end_timestamp, forgetting=None,figure=False, base_filename=None, verbose=False):
+def calculate_sequence_entropy(pa, start_timestamp, end_timestamp, forgetting=None, k=1 ,figure=False, base_filename=None, verbose=False):
 	if forgetting and not (forgetting in ["linear", "exp"]):
 		raise Exception("Forgetting can only be linear or exponential")
 
@@ -729,7 +729,7 @@ def calculate_sequence_entropy(pa, start_timestamp, end_timestamp, forgetting=No
 		elif(forgetting=="linear"):
 			print("Monthly entropy with linear forgetting")
 		elif(forgetting=="exp"):
-			print("Monthly entropy with exponential forgetting(k=1)")
+			print("Monthly entropy with exponential forgetting(k="+str(k)+")")
 
 	dates=[]
 	if not forgetting:
@@ -762,7 +762,7 @@ def calculate_sequence_entropy(pa, start_timestamp, end_timestamp, forgetting=No
 			if forgetting=="linear":
 				complexity1, complexity1_norm1, complexity1_norm2,complexity2, complexity2_norm1, complexity2_norm2 = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ), forgetting="linear")
 			elif forgetting=="exp": #TODO: add k
-				complexity1, complexity1_norm1, complexity1_norm2,complexity2, complexity2_norm1, complexity2_norm2 = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ), forgetting="exp")
+				complexity1, complexity1_norm1, complexity1_norm2,complexity2, complexity2_norm1, complexity2_norm2 = monthly_log_complexity(pa, datetime(dt.year, dt.month,calendar.monthrange(int(dt.year), int(dt.month))[1], 23,59,59 ), forgetting="exp", k=k)
 			else:
 				raise Exception("Forgetting can only be linear or exponential")
 
@@ -888,10 +888,22 @@ if __name__ == "__main__":
 
 	# Change over time
 	if(args.change):
+		def show(df): # For backward compatibility
+			cols = [col for col in df.columns if col != "Date"]
+			for i in range(len(df)):
+				dt = df["Date"][i]
+				print(str(calendar.month_name[dt.month])+" "+str(dt.year))
+				for col in cols:
+					print(col+": "+str(df[col][i]))
+
 		variant_entropy_change = calculate_variant_entropy(pa,log[0].timestamp,log[-1].timestamp, figure=True, base_filename=base_filename, verbose=args.verbose)
+		show(variant_entropy_change)
 		sequence_entropy_change = calculate_sequence_entropy(pa,log[0].timestamp,log[-1].timestamp, figure=True, base_filename=base_filename, verbose=args.verbose)
+		show(sequence_entropy_change)
 		sequence_entropy_change_linear = calculate_sequence_entropy(pa,log[0].timestamp,log[-1].timestamp, forgetting="linear", figure=True, base_filename=base_filename, verbose=args.verbose)
-		sequence_entropy_change_exponential = calculate_sequence_entropy(pa,log[0].timestamp,log[-1].timestamp, forgetting="exp", figure=True, base_filename=base_filename, verbose=args.verbose)
+		show(sequence_entropy_change_linear)
+		sequence_entropy_change_exponential = calculate_sequence_entropy(pa,log[0].timestamp,log[-1].timestamp, forgetting="exp", k=float(args.ex_k), figure=True, base_filename=base_filename, verbose=args.verbose)
+		show(sequence_entropy_change_exponential)
 
 	# Show prefixes of each state
 	if(args.prefix):
