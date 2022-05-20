@@ -3,4 +3,4 @@ BitVector
 lempel_ziv_complexity
 matplotlib
 pandas
-pm4py
+pm4py=2.2.19
