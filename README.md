@@ -31,6 +31,8 @@ python3 Complexity.py [options]
 ```-m [MEASURE]``` additional complexity measures. Choose from: magnitude, support, variety, level_of_detail, time_granularity, structure, affinity, trace_length, distinct_traces, deviation_from_random, lempel-ziv, pentland, *all*
 ```-d``` creates [GraphViz](https://graphviz.org/) specification and prints it to ```STDOUT```
 ```-g``` draws the Extended Prefix Automaton an an SVG image. Requires [GraphViz](https://graphviz.org/)
+```-a``` explicitly mark accepting states
+```-p``` print prefix for each state
 ```--png``` additional option for ```-g```, will try to creade a PNG image but might fail if EPA is too big
 ```--hide-event``` additional option for ```-g```, will only show states in the image but not the corresponding events
 ```-v``` verbose output (warning: a LOT of output)

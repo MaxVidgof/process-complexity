@@ -43,7 +43,7 @@ class Node:
 		self.j = 0
 
 class ActivityType(Node):
-	def __init__(self, activity, predecessor, c):
+	def __init__(self, activity, predecessor, c, accepting=True):
 		self.activity = activity
 		self.sequence = []
 		self.predecessor = predecessor
@@ -52,6 +52,7 @@ class ActivityType(Node):
 		self.j = predecessor.j + 1
 		self.label = "<" + "s" + "<sup>" + str(c) + "</sup>" + "<sub>" + str(self.j) + "</sub>" + ">"
 		self.name = activity+ "Type" + str(c) + "_" + str(self.j)
+		self.accepting = accepting
 
 	def getPrefix(self):
 		prefix = self.activity
@@ -65,9 +66,12 @@ class Graph:
 		self.root = Node("root")
 		self.nodes = [self.root]
 		self.activity_types = dict()
+		# not part of formal definition,
+		# implementation decision to improve construction speed
+		self.last_at = dict()
 
-	def addNode(self, activity, predecessor, c, verbose=False):
-		node = ActivityType(activity, predecessor, c)
+	def addNode(self, activity, predecessor, c, accepting=True, verbose=False):
+		node = ActivityType(activity, predecessor, c, accepting)
 		node.predecessor.successors[activity] = node
 		self.nodes.append(node)
 		if activity not in self.activity_types:
@@ -209,21 +213,26 @@ def flatten(in_list):
 	return out_list
 
 # Build the EPA
-def build_graph(log, verbose=False):
+def build_graph(log, verbose=False, accepting=False):
 	if len(log)==0:
 		raise Exception("Cannot build EPA from an empty log")
 	if(verbose):
 		print("Building the prefix automaton...")
 
 	pa = Graph()
-	last_at = {}
+	#last_at = {}
+	pa = add_events_to_graph(pa, log, verbose=verbose)
+	if accepting:
+		pa = mark_accepting_states(pa)
+	return pa
 
+def add_events_to_graph(pa, log, verbose=False):
 	for event in log:
 		if(event.predecessor):
 			#Find the ActivityType of the predecessor event
 			if event.predecessor != pa.root:
-				if (event.case_id in last_at and event.predecessor in last_at[event.case_id].sequence):
-					pred_activity_type = last_at[event.case_id]
+				if (event.case_id in pa.last_at and event.predecessor in pa.last_at[event.case_id].sequence):
+					pred_activity_type = pa.last_at[event.case_id]
 				else:
 					raise Exception("Error")
 		else:
@@ -243,14 +252,23 @@ def build_graph(log, verbose=False):
 
 
 		current_activity_type.sequence.append(event)
-		last_at[event.case_id] = current_activity_type
+		pa.last_at[event.case_id] = current_activity_type
+
+	return pa
+
+def mark_accepting_states(pa):
+	for node in pa.nodes:
+	        if node != pa.root and (len(node.successors)==0 or len(node.sequence) > sum([len(successor.sequence) for successor in node.successors.values()])):
+                	node.accepting = True
+        	else:
+	                node.accepting = False
 
 
 	return pa
 
-def draw_graph(pa, base_filename, subg, png=False):
+def draw_graph(pa, base_filename, subg, png=False, accepting=False):
 	my_spec=open(base_filename+'.gv', 'w')
-	my_spec.write(pa.draw(subg))
+	my_spec.write(pa.draw(subg, accepting))
 	my_spec.close()
 	print("Saved DOT specification to "+base_filename+".gv")
 	subprocess.call(["dot", "-Tpng" if png else "-Tsvg", base_filename+".gv", "-o", base_filename+"."+("png" if png else "svg")])
@@ -855,6 +873,7 @@ if __name__ == "__main__":
 	parser.add_argument("--png", dest="png", help="draw the graph in PNG (may fail if the graph is too big", default=False, action="store_true")
 	parser.add_argument("-e", "--exponential-forgetting", dest="ex_k", help="coefficient for exponential forgetting", default=1)
 	parser.add_argument("-t", dest="change", help="calculate complexity growth over time", default=False,action="store_true")
+	parser.add_argument("-a", "--accepting", dest="accepting", help="explicitly mark accepting states", default=False, action="store_true")
 
 	args = parser.parse_args()
 	times = {}
@@ -864,14 +883,14 @@ if __name__ == "__main__":
 	base_filename = extract_base_filename(args.file)
 	pm4py_log = generate_pm4py_log(args.file, verbose=args.verbose)
 	log = generate_log(pm4py_log, verbose=args.verbose)
-	pa = build_graph(log, verbose=args.verbose)
+	pa = build_graph(log, verbose=args.verbose, accepting=args.accepting)
 
 	if(args.dot):
 		print("DOT specification:")
 		print(pa.draw(args.subg))
 
 	if(args.graph):
-		draw_graph(pa, base_filename, args.subg, args.png)
+		draw_graph(pa, base_filename, args.subg, args.png, args.accepting)
 	if(args.measures):
 		measurements = perform_measurements(args.measures, log, pm4py_log, pa, quiet=False, verbose=args.verbose)
 
