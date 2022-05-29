@@ -79,7 +79,7 @@ class Graph:
 		return node
 
 	#node [label=""];
-	def draw(self, subg=False):
+	def draw(self, subg=False, accepting=False):
 		dot_string = """digraph G {
 	rankdir=LR;
 	node [shape=circle fontsize=30.0];
@@ -88,8 +88,8 @@ class Graph:
 """
 		for node in self.nodes:
 			if node != self.root:
-				dot_string += "\t\t" + node.name + " [label=" + node.label + "];\n"
-				dot_string += "\t\t"+node.predecessor.name+" -> "+node.name+" [label=" + node.activity + "]" + ";\n"
+				dot_string += "\t\t\"" + node.name + "\" [label=" + node.label + "];\n"
+				dot_string += "\t\t\""+node.predecessor.name+"\" -> \""+node.name+"\" [label=\"" + node.activity + "\"]" + ";\n"
 		dot_string += "\t}"
 		if(subg):
 			dot_string += """\n\tsubgraph Rel2 {
@@ -100,9 +100,13 @@ class Graph:
 				if node != self.root:
 					dot_string += "\t\t" + "\"" + str(node.sequence[0].event_id) + "\""  #"_".join([ str(event.event_id) for event in node.sequence]) + "\"" #",".join #event.activity+str(event.event_id)
 					dot_string += " [label=<" + ",".join([event.activity + "<sup>" + str(event.case_id) + "</sup>" + "<sub>" + str(event.event_id) + "</sub>" for event in node.sequence]) + ">];\n"
-					dot_string += "\t\t"+node.name+" -> "+"\""+ str(node.sequence[0].event_id) + "\";\n"  #"_".join([ str(event.event_id) for event in node.sequence])+"\";\n" #event.activity+str(event.event_id)
+					dot_string += "\t\t\""+node.name+"\" -> "+"\""+ str(node.sequence[0].event_id) + "\";\n"  #"_".join([ str(event.event_id) for event in node.sequence])+"\";\n" #event.activity+str(event.event_id)
 			dot_string += "\t}\n"
-		dot_string += "}"
+		if(accepting):
+			for node in self.nodes:
+				if node != self.root and hasattr(node, "accepting") and node.accepting:
+					dot_string += "\n\t\""+node.name+"\" [shape=doublecircle]"
+		dot_string += "\n}"
 		return dot_string
 
 	def get_first_timestamp(self):
