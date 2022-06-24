@@ -64,3 +64,12 @@ log = Complexity.generate_log(pm4py_log)
 epa = Complexity.build_graph(log)
 ```
 You can now use the EPA in your code!
+
+## Scripts
+This package also includes special scripts ```monthly.py```, ```weekly.py```, ```blocks.py``` and ```sliding.py``` that can be used to evaluate how process complexity and other log measures evolve over time.
+This is done by splitting the input log into:
+* time intervals (```monthly.py```, ```weekly.py```)
+* blocks of fixed size (```blocks.py```)
+* sliding window (```sliding.py```)
+
+For more information, run any of the scripts with the ```-h``` flag.
