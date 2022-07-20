@@ -155,7 +155,7 @@ def generate_pm4py_log(filename=None, verbose=False):
 		from pm4py.objects.log.util import dataframe_utils
 
 		log_csv = pd.read_csv(filename, sep=i_d, header=h)
-		log_csv.rename(columns={i_c:'case', i_a:'concept:name', i_t:'time:timestamp'}, inplace=True)
+		log_csv.rename(columns={log_csv.columns[i_c]:'case', log_csv.columns[i_a]:'concept:name', log_csv.columns[i_t]:'time:timestamp'}, inplace=True)
 		for col in log_csv.columns:
 			if isinstance(col, int):
 				log_csv.rename(columns={col:'column'+str(col)}, inplace=True)
