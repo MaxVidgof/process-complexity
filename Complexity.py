@@ -79,7 +79,8 @@ class Graph:
 		self.activity_types[activity].append(node)
 		if(verbose):
 			print("Adding activity type: "+node.name)
-		self.nodes.sort(key = lambda node: (node.c, node.j))
+		# Extremely expensive -> affecting all
+		#self.nodes.sort(key = lambda node: (node.c, node.j))
 		return node
 
 	#node [label=""];
@@ -231,7 +232,7 @@ def add_events_to_graph(pa, log, verbose=False):
 		if(event.predecessor):
 			#Find the ActivityType of the predecessor event
 			if event.predecessor != pa.root:
-				if (event.case_id in pa.last_at and event.predecessor in pa.last_at[event.case_id].sequence):
+				if (event.case_id in pa.last_at and event.predecessor in pa.last_at[event.case_id].sequence): # doesnt affect speed
 					pred_activity_type = pa.last_at[event.case_id]
 				else:
 					raise Exception("Error")
@@ -240,7 +241,7 @@ def add_events_to_graph(pa, log, verbose=False):
 
 		#Check if the predecessor's ActivityType has a succeeding ActivityType that we need
 		current_activity_type = None
-		if(event.activity in pred_activity_type.successors.keys()):
+		if(event.activity in pred_activity_type.successors): #keys
 			current_activity_type = pred_activity_type.successors[event.activity]
 		else:
 			if len(pred_activity_type.successors) > 0:
@@ -254,6 +255,8 @@ def add_events_to_graph(pa, log, verbose=False):
 		current_activity_type.sequence.append(event)
 		pa.last_at[event.case_id] = current_activity_type
 
+	# Moved expensive sort here -- it is done only once when all nodes are added
+	pa.nodes.sort(key = lambda node: (node.c, node.j))
 	return pa
 
 def mark_accepting_states(pa):
@@ -348,7 +351,7 @@ def aux_aff(pm4py_log):
 	hashmap, num_act = aux_hashmap(pm4py_log)
 
 	aff = {}
-	for variant in var.keys():
+	for variant in var: #keys
 		aff[variant] = [0,0]
 		aff[variant][0] = len(var[variant])
 		aff[variant][1] = BitVector(size=num_act**2)
