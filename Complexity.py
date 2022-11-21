@@ -69,6 +69,9 @@ class Graph:
 		# not part of formal definition,
 		# implementation decision to improve construction speed
 		self.last_at = dict()
+		# implementatio decision to improve entropy measurement speed
+		# must always be constructed anew before use
+		self.c_index = {}
 
 	def addNode(self, activity, predecessor, c, accepting=True, verbose=False):
 		node = ActivityType(activity, predecessor, c, accepting)
@@ -523,19 +526,36 @@ def perform_measurements(desired_measurements, log=None, pm4py_log=None, pa=None
 	return measurements
 
 #  EPA complexity measures
+def create_c_index(pa):
+	c_index = {}
+	for node in pa.nodes:
+		if node.c not in c_index:
+			c_index[node.c] = []
+		c_index[node.c].append(node)
+
+	for key in c_index:
+		c_index[key].sort(key = lambda node: node.j)
+
+	return c_index
+
 # Variant entropy
 def graph_complexity(pa):
+	# Always (re-)create c_index instead of assuming it exists and is up-to-date
+	pa.c_index = create_c_index(pa)
 	graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
 	normalize = graph_complexity
 	for i in range(1,pa.c+1):
 		#print(graph_complexity)
-		e = len([AT for AT in pa.nodes if AT.c == i])
+		#e = len([AT for AT in pa.nodes if AT.c == i])
+		e = len(pa.c_index[i])
 		graph_complexity -= math.log(e)*e
 
 	return graph_complexity,(graph_complexity/normalize)
 
 # Sequence entropy
 def log_complexity(pa, forgetting = None, k=1):
+	# Always (re-)create c_index instead of assuming it exists and is up-to-date
+	pa.c_index = create_c_index(pa)
 	#normalize = len(log)*math.log(len(log))
 	#removed due to dependency on log
 	normalize = sum([len(AT.sequence) for AT in flatten(pa.activity_types.values())])
@@ -547,10 +567,11 @@ def log_complexity(pa, forgetting = None, k=1):
 		log_complexity = math.log(length)*length
 		for i in range(1,pa.c+1):
 			#print(log_complexity)
-			e = 0
-			for AT in pa.nodes:
-				if AT.c == i:
-					e += len(AT.sequence)
+			#e = 0
+			#for AT in pa.nodes:
+			#	if AT.c == i:
+			#		e += len(AT.sequence)
+			e = sum([len(AT.sequence) for AT in pa.c_index[i]])
 			log_complexity -= math.log(e)*e
 
 		return log_complexity,(log_complexity/normalize)
@@ -567,10 +588,12 @@ def log_complexity(pa, forgetting = None, k=1):
 
 		for i in range(1,pa.c+1):
 			e = 0
-			for AT in pa.nodes:
-				if AT.c == i:
-					for event in AT.sequence:
-						e += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
+			#for AT in pa.nodes:
+			#	if AT.c == i:
+			#		for event in AT.sequence:
+			for AT in pa.c_index[i]:
+				for event in AT.sequence:
+					e += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan # used to be 1 more tab
 			log_complexity_linear -= math.log(e)*e
 
 		return log_complexity_linear,(log_complexity_linear/normalize)
@@ -588,10 +611,12 @@ def log_complexity(pa, forgetting = None, k=1):
 
 		for i in range(1,pa.c+1):
 			e = 0
-			for AT in pa.nodes:
-				if AT.c == i:
-					for event in AT.sequence:
-						e += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
+			#for AT in pa.nodes:
+			#	if AT.c == i:
+			#		for event in AT.sequence:
+			for AT in pa.c_index[i]:
+				for event in AT.sequence:
+					e += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k) # used to be 1 more tab
 			log_complexity_exp -= math.log(e)*e
 		return log_complexity_exp,(log_complexity_exp/normalize)
 	else:
