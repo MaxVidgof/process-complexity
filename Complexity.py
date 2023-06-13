@@ -124,6 +124,21 @@ class Graph:
 	def get_timespan(self):
 		return (self.get_last_timestamp() - self.get_first_timestamp()).total_seconds()
 
+	def to_plain_log(self):
+		return sorted(flatten([node.sequence for node in self.nodes if node != self.root]), key = lambda event: event.timestamp)
+	def to_pm4py_log(self):
+		traces = {}
+		for event in sorted(self.to_plain_log(), key=lambda event: (event.case_id, event.timestamp)):
+			if event.predecessor and (event.case_id not in traces):
+				raise Exception("Could not convert to PM4Py log")
+			if event.case_id not in traces:
+				traces[event.case_id] = pm4py.objects.log.obj.Trace()
+			pm4py_event = pm4py.objects.log.obj.Event()
+			pm4py_event["concept:name"] = event.activity
+			pm4py_event["time:timestamp"] = event.timestamp
+			traces[event.case_id].append(pm4py_event)
+		return pm4py.objects.log.obj.EventLog(traces.values())
+
 #2. Read the event log
 
 # Functions
@@ -230,34 +245,41 @@ def build_graph(log, verbose=False, accepting=False):
 		pa = mark_accepting_states(pa)
 	return pa
 
+def find_predecessor(event, pa, verbose=False):
+	if(event.predecessor):
+		#Find the ActivityType of the predecessor event
+		if event.predecessor != pa.root:
+			if (event.case_id in pa.last_at and event.predecessor in pa.last_at[event.case_id].sequence): # doesnt affect speed
+				pred_activity_type = pa.last_at[event.case_id]
+			else:
+				raise Exception("Error")
+	else:
+		pred_activity_type = pa.root
+
+	return pred_activity_type
+
+def add_event_to_graph(event, pa, verbose=False):
+	pred_activity_type = find_predecessor(event, pa, verbose=verbose)
+	#Check if the predecessor's ActivityType has a succeeding ActivityType that we need
+	current_activity_type = None
+	if(event.activity in pred_activity_type.successors): #keys
+		current_activity_type = pred_activity_type.successors[event.activity]
+	else:
+		if len(pred_activity_type.successors) > 0:
+			pa.c += 1
+			curr_c = pa.c
+		else:
+			curr_c = pred_activity_type.c if pred_activity_type != pa.root else pa.c
+		current_activity_type = pa.addNode(event.activity, pred_activity_type, curr_c, verbose=verbose)
+
+	current_activity_type.sequence.append(event)
+	pa.last_at[event.case_id] = current_activity_type
+
+	return current_activity_type
+
 def add_events_to_graph(pa, log, verbose=False):
 	for event in log:
-		if(event.predecessor):
-			#Find the ActivityType of the predecessor event
-			if event.predecessor != pa.root:
-				if (event.case_id in pa.last_at and event.predecessor in pa.last_at[event.case_id].sequence): # doesnt affect speed
-					pred_activity_type = pa.last_at[event.case_id]
-				else:
-					raise Exception("Error")
-		else:
-			pred_activity_type = pa.root
-
-		#Check if the predecessor's ActivityType has a succeeding ActivityType that we need
-		current_activity_type = None
-		if(event.activity in pred_activity_type.successors): #keys
-			current_activity_type = pred_activity_type.successors[event.activity]
-		else:
-			if len(pred_activity_type.successors) > 0:
-				pa.c += 1
-				curr_c = pa.c
-			else:
-				curr_c = pred_activity_type.c if pred_activity_type != pa.root else pa.c
-			current_activity_type = pa.addNode(event.activity, pred_activity_type, curr_c, verbose)
-
-
-		current_activity_type.sequence.append(event)
-		pa.last_at[event.case_id] = current_activity_type
-
+		add_event_to_graph(event, pa, verbose=verbose)
 	# Moved expensive sort here -- it is done only once when all nodes are added
 	pa.nodes.sort(key = lambda node: (node.c, node.j))
 	return pa
@@ -414,7 +436,10 @@ def measure_affinity(pm4py_log, quiet=False, verbose=False):
 			else:
 				#relative overlap = 1
 				m_affinity += aff[v1][0]*(aff[v1][0]-1)
-	m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
+	try:
+		m_affinity /= (sum([aff[v][0] for v in aff]))*(sum([aff[v][0] for v in aff])-1)
+	except ZeroDivisionError:
+		m_affinity = float("nan")
 	if not quiet:
 		print("Affinity: "+str(m_affinity))
 	return m_affinity
@@ -544,7 +569,8 @@ def graph_complexity(pa):
 	pa.c_index = create_c_index(pa)
 	graph_complexity = math.log(len(pa.nodes)-1) * (len(pa.nodes)-1)
 	normalize = graph_complexity
-	for i in range(1,pa.c+1):
+	#for i in range(1,pa.c+1):
+	for i in list(pa.c_index.keys())[1:]: # ignore c=0 that is always present
 		#print(graph_complexity)
 		#e = len([AT for AT in pa.nodes if AT.c == i])
 		e = len(pa.c_index[i])
@@ -565,7 +591,8 @@ def log_complexity(pa, forgetting = None, k=1):
 		for AT in flatten(pa.activity_types.values()):
 			length += len(AT.sequence)
 		log_complexity = math.log(length)*length
-		for i in range(1,pa.c+1):
+		#for i in range(1,pa.c+1):
+		for i in list(pa.c_index.keys())[1:]: # ignore c=0 that is always present
 			#print(log_complexity)
 			#e = 0
 			#for AT in pa.nodes:
@@ -586,7 +613,8 @@ def log_complexity(pa, forgetting = None, k=1):
 
 		log_complexity_linear = math.log(log_complexity_linear) * log_complexity_linear
 
-		for i in range(1,pa.c+1):
+		#for i in range(1,pa.c+1):
+		for i in list(pa.c_index.keys())[1:]: # ignore c=0 that is always present
 			e = 0
 			#for AT in pa.nodes:
 			#	if AT.c == i:
@@ -609,7 +637,8 @@ def log_complexity(pa, forgetting = None, k=1):
 
 		log_complexity_exp = math.log(log_complexity_exp) * log_complexity_exp
 
-		for i in range(1,pa.c+1):
+		#for i in range(1,pa.c+1):
+		for i in list(pa.c_index.keys())[1:]: # ignore c=0 that is always present
 			e = 0
 			#for AT in pa.nodes:
 			#	if AT.c == i:
