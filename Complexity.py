@@ -327,7 +327,16 @@ def measure_time_granularity(log, quiet=False, verbose=False):
 				time_granularities[event.case_id] = d
 				if(verbose):
 					print("Updating time granularity for trace " + str(event.case_id) + ": " + str(d) + " seconds. Event " + str(event.activity) + " (" + str(event.event_id) + ")")
-	m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
+	try:
+		m_time_granularity = statistics.mean([time_granularities[case_id] for case_id in time_granularities])
+	except statistics.StatisticsError as err:
+		if not time_granularities:
+			# If all cases have at most one event
+			# Then there are no time differences between events
+			# Setting time granularity to 0
+			m_time_granularity = 0
+		else:
+			raise err
 	if not quiet:
 		print("Time granularity: " + str(m_time_granularity) + " (seconds)")
 	return m_time_granularity
@@ -480,12 +489,17 @@ def measure_deviation_from_random(log, pm4py_log, quiet=False, verbose=False):
 			action_network[evt_lexicon.index(event.predecessor.activity)][evt_lexicon.index(event.activity)] += 1
 			n_transitions +=1
 	m_dev_from_rand = 0
-	a_mean = n_transitions/(m_variety**2)
-	for i in range(len(action_network)):
-		for j in range(len(action_network[i])):
-			m_dev_from_rand += ((action_network[i][j]-a_mean)/n_transitions)**2
-	m_dev_from_rand = math.sqrt(m_dev_from_rand)
-	m_dev_from_rand = 1 - m_dev_from_rand
+	if n_transitions > 0:
+		a_mean = n_transitions/(m_variety**2)
+		for i in range(len(action_network)):
+			for j in range(len(action_network[i])):
+				m_dev_from_rand += ((action_network[i][j]-a_mean)/n_transitions)**2
+		m_dev_from_rand = math.sqrt(m_dev_from_rand)
+		m_dev_from_rand = 1 - m_dev_from_rand
+	else:
+		# If there are no transitions
+		# set deviation from random to NA
+		m_dev_from_rand = None
 	if not quiet:
 		print("Deviation from random: " + str(m_dev_from_rand))
 	return m_dev_from_rand
@@ -575,9 +589,13 @@ def graph_complexity(pa):
 		#e = len([AT for AT in pa.nodes if AT.c == i])
 		e = len(pa.c_index[i])
 		graph_complexity -= math.log(e)*e
-
-	return graph_complexity,(graph_complexity/normalize)
-
+	try:
+		return graph_complexity,(graph_complexity/normalize)
+	except ZeroDivisionError:
+		if graph_complexity==0:
+			return 0,0
+		else:
+			raise Exception("Error")
 # Sequence entropy
 def log_complexity(pa, forgetting = None, k=1):
 	# Always (re-)create c_index instead of assuming it exists and is up-to-date
@@ -601,7 +619,14 @@ def log_complexity(pa, forgetting = None, k=1):
 			e = sum([len(AT.sequence) for AT in pa.c_index[i]])
 			log_complexity -= math.log(e)*e
 
-		return log_complexity,(log_complexity/normalize)
+		try:
+			return log_complexity,(log_complexity/normalize)
+		except ZeroDivisionError:
+			if log_complexity==0:
+				return 0,0
+			else:
+				raise Exception("Error")
+
 	elif(forgetting=="linear"):
 		#log complexity with linear forgetting
 		last_timestamp = pa.get_last_timestamp()
@@ -609,7 +634,14 @@ def log_complexity(pa, forgetting = None, k=1):
 		log_complexity_linear = 0
 		for AT in flatten(pa.activity_types.values()):
 			for event in AT.sequence:
-				log_complexity_linear += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
+				try:
+					log_complexity_linear += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan
+				except ZeroDivisionError:
+					# timespan==0
+					# meaning the period has only 1 event
+					# its weight is conceptually both 0 and 1
+					# choose weight of 1
+					log_complexity_linear += 1
 
 		log_complexity_linear = math.log(log_complexity_linear) * log_complexity_linear
 
@@ -621,10 +653,35 @@ def log_complexity(pa, forgetting = None, k=1):
 			#		for event in AT.sequence:
 			for AT in pa.c_index[i]:
 				for event in AT.sequence:
-					e += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan # used to be 1 more tab
-			log_complexity_linear -= math.log(e)*e
+					try:
+						e += 1 - (last_timestamp - event.timestamp).total_seconds()/timespan # used to be 1 more tab
+					except ZeroDivisionError:
+						# timespan==0
+						# meaning the period has only 1 event
+						# its weight is conceptually both 0 and 1
+						# choose weight of 1
+						e += 1
+			try:
+				log_complexity_linear -= math.log(e)*e
+			except ValueError:
+				if e==0:
+					# if a partition only contains one event
+					# that happens to be the first event
+					# then it just weights 0 and does not affect entropy
+					pass
+				else:
+					print(f"e= {e}")
+					import sys
+					sys.exit("E")
 
-		return log_complexity_linear,(log_complexity_linear/normalize)
+		try:
+			return log_complexity_linear,(log_complexity_linear/normalize)
+		except ZeroDivisionError:
+			if log_complexity_linear==0:
+				return 0,0
+			else:
+				raise Exception("Error")
+
 
 	elif(forgetting=="exp"):
 		#log complexity with exponential forgetting
@@ -633,7 +690,15 @@ def log_complexity(pa, forgetting = None, k=1):
 		log_complexity_exp = 0
 		for AT in flatten(pa.activity_types.values()):
 			for event in AT.sequence:
-				log_complexity_exp += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
+				try:
+					log_complexity_exp += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k)
+				except ZeroDivisionError:
+					# timespan==0
+					# meaning the period has only 1 event
+					# its weight is conceptually both 0 and 1
+					# choose weight of 1
+					log_complexity_exp += 1
+
 
 		log_complexity_exp = math.log(log_complexity_exp) * log_complexity_exp
 
@@ -645,9 +710,23 @@ def log_complexity(pa, forgetting = None, k=1):
 			#		for event in AT.sequence:
 			for AT in pa.c_index[i]:
 				for event in AT.sequence:
-					e += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k) # used to be 1 more tab
+					try:
+						e += math.exp((-(last_timestamp - event.timestamp).total_seconds()/timespan)*k) # used to be 1 more tab
+					except ZeroDivisionError:
+						# timespan==0
+						# meaning the period has only 1 event
+						# its weight is conceptually both 0 and 1
+						# choose weight of 1
+						e += 1
 			log_complexity_exp -= math.log(e)*e
-		return log_complexity_exp,(log_complexity_exp/normalize)
+		try:
+			return log_complexity_exp,(log_complexity_exp/normalize)
+		except ZeroDivisionError:
+			if log_complexity_exp==0:
+				return 0,0
+			else:
+				raise Exception("Error")
+
 	else:
 		return None,None
 
