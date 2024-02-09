@@ -17,6 +17,7 @@ from BitVector import BitVector
 import matplotlib.pyplot as plt
 import functools
 from itertools import count
+import operator
 
 # Classes
 class Event:
@@ -471,6 +472,33 @@ def measure_distinct_traces(pm4py_log, quiet=False, verbose=False):
 		print("Distinct traces: " + str(m_distinct_traces) + "%")
 	return m_distinct_traces
 
+def measure_pentland_process(pm4py_log, quiet=False, verbose=False):
+	aff = aux_aff(pm4py_log)
+	hashmap, num_act = aux_hashmap(pm4py_log)
+	event_classes = aux_event_classes(pm4py_log)
+
+	evts = list(set.union(*[event_classes[case_id] for case_id in event_classes]))
+
+	# Only shows if a DF relation between the activities exists
+	binary_transition_matrix = [[0 for j in range(num_act)] for i in range(num_act)]
+	vector = functools.reduce(operator.or_,[v[1] for v in aff.values()])
+	for i,act1 in enumerate(evts):
+		for j,act2 in enumerate(evts):
+			binary_transition_matrix[i][j] = vector[hashmap[(act1,act2)]]
+
+	# Formula: 10^(0.08*(1+e-v))
+	# where v = number of 'vertices', i.e. activities
+	# e = number of 'edges', i.e. non-zero cells in transition matrix
+	v = len(evts)
+	e = sum(sum(binary_transition_matrix[i][j] for j in range(num_act)) for i in range(num_act))
+
+	m_pentland_process = 10**(0.08*(1+e-v))
+	if verbose:
+		print(f"v: {v}")
+		print(f"e: {e}")
+	if not quiet:
+		print(f"Pentland's process complexity: {m_pentland_process}")
+
 # Measures depending on both log and pm4py_log
 def measure_deviation_from_random(log, pm4py_log, quiet=False, verbose=False):
 	event_classes = aux_event_classes(pm4py_log)
@@ -561,6 +589,10 @@ def perform_measurements(desired_measurements, log=None, pm4py_log=None, pa=None
 	# Haerem and Pentland task complexity
 	if check_measure("pentland","all"):
 		measurements["Pentland's task complexity"] = measure_pentland_task(pa, quiet, verbose)
+
+	# Pentland process complexity
+	if check_measure("pentland_process","all"):
+		measurements["Pentland's process complexity"] = measure_pentland_process(pm4py_log, quiet, verbose)
 
 	return measurements
 
