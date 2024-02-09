@@ -474,23 +474,27 @@ def measure_distinct_traces(pm4py_log, quiet=False, verbose=False):
 
 def measure_pentland_process(pm4py_log, quiet=False, verbose=False):
 	aff = aux_aff(pm4py_log)
+	m_variety = measure_variety(pm4py_log, quiet=True)
+
 	hashmap, num_act = aux_hashmap(pm4py_log)
 	event_classes = aux_event_classes(pm4py_log)
 
 	evts = list(set.union(*[event_classes[case_id] for case_id in event_classes]))
 
 	# Only shows if a DF relation between the activities exists
-	binary_transition_matrix = [[0 for j in range(num_act)] for i in range(num_act)]
+	#binary_transition_matrix = [[0 for j in range(num_act)] for i in range(num_act)]
 	vector = functools.reduce(operator.or_,[v[1] for v in aff.values()])
-	for i,act1 in enumerate(evts):
-		for j,act2 in enumerate(evts):
-			binary_transition_matrix[i][j] = vector[hashmap[(act1,act2)]]
+	#for i,act1 in enumerate(evts):
+	#	for j,act2 in enumerate(evts):
+	#		binary_transition_matrix[i][j] = vector[hashmap[(act1,act2)]]
 
 	# Formula: 10^(0.08*(1+e-v))
 	# where v = number of 'vertices', i.e. activities
 	# e = number of 'edges', i.e. non-zero cells in transition matrix
-	v = len(evts)
-	e = sum(sum(binary_transition_matrix[i][j] for j in range(num_act)) for i in range(num_act))
+	#v = len(evts)
+	#e = sum(sum(binary_transition_matrix[i][j] for j in range(num_act)) for i in range(num_act))
+	v = m_variety
+	e = vector.count_bits_sparse()
 
 	m_pentland_process = 10**(0.08*(1+e-v))
 	if verbose:
@@ -502,7 +506,7 @@ def measure_pentland_process(pm4py_log, quiet=False, verbose=False):
 # Measures depending on both log and pm4py_log
 def measure_deviation_from_random(log, pm4py_log, quiet=False, verbose=False):
 	event_classes = aux_event_classes(pm4py_log)
-	m_variety = measure_variety(pm4py_log)
+	m_variety = measure_variety(pm4py_log, quiet=True)
 
 	action_network = []
 	for i in range (m_variety):
