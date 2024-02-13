@@ -502,6 +502,7 @@ def measure_pentland_process(pm4py_log, quiet=False, verbose=False):
 		print(f"e: {e}")
 	if not quiet:
 		print(f"Pentland's process complexity: {m_pentland_process}")
+	return m_pentland_process
 
 # Measures depending on both log and pm4py_log
 def measure_deviation_from_random(log, pm4py_log, quiet=False, verbose=False):
