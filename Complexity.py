@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import functools
 from itertools import count
 import operator
+import pickle
 
 # Classes
 class Event:
@@ -139,6 +140,9 @@ class Graph:
 			pm4py_event["time:timestamp"] = event.timestamp
 			traces[event.case_id].append(pm4py_event)
 		return pm4py.objects.log.obj.EventLog(traces.values())
+	def export(self, filename):
+		with open(filename, 'wb') as ofile:
+			pickle.dump(self, ofile, pickle.HIGHEST_PROTOCOL)
 
 #2. Read the event log
 
