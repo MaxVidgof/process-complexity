@@ -62,6 +62,9 @@ class ActivityType(Node):
 			prefix = self.predecessor.getPrefix() + "," + prefix
 		return prefix
 
+	def get_prefix_list(self):
+		return ([activity for activity in self.predecessor.get_prefix_list()] if self.predecessor.name != "root" else []) + [self.activity]
+
 class Graph:
 	def __init__(self):
 		self.c = 1
